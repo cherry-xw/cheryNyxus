@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import fs from 'node:fs'
 import { MessagePartSchema, ToolFileResultSchema, defaultDeliverableAssetIds, publicOutcomeText } from '@chery/protocol'
-import type { BackendStopSnapshot, BackendStopBlocker, QQServiceState } from '@chery/protocol'
+import type { BackendStopSnapshot, BackendStopBlocker, QQServiceState, SourceReceipt, SourceScope, SourceHandling } from '@chery/protocol'
 import { closeQQQueues } from './backendLifecycle.js'
 import type {
   IngressContext,
@@ -33,22 +33,27 @@ import {
   type QQEntry,
   type QQStatus,
 } from '../../../packages/protocol/src/qq.js'
-import { atomicJson, readState, digest, targetOf, type Job, type Outbox, type QQBackground } from './state.js'
+import { atomicJson, readState, digest, targetOf, type Job, type Outbox } from './state.js'
 import { createQQTools, QQ_MEMORY_CONTEXT_KEY } from './tools.js'
 import { QQMemoryStore } from './memory.js'
 import { ReminderStore, reminderTools } from './reminders.js'
-import { QQGroupMemoryStore } from './groupMemory.js'
+import { QQGroupMemoryStore, type GroupSource } from './groupMemory.js'
 import { participationTool } from './participation.js'
-import { informationTool } from './information.js'
+import { informationTool, sourceTextTool } from './information.js'
 import { findVideoSource, videoResendTool } from './videoResend.js'
 import os from 'node:os'
 import { mergeFailure } from './failure.js'
 import { createReplyTools, type ReplyAction } from './replyTools.js'
-import { prepareQQFileInputs, qqModelContext } from './assetMessages.js'
 import { QQImageSources } from './imageSources.js'
 import { QQImageTransportMethods } from '@chery/protocol'
+import { QQFileTransportMethods } from '@chery/protocol'
+import { QQSourceIntake } from './sourceIntake.js'
+import { openSourceDirectory, sourceDirectory, stageSourceZip, type SourceWorkspaceAccess } from './sourceWorkspace.mjs'
 import { recordDetail, recordEntry } from './managementRecords.js'
-import { conversationRules, summaryEvidenceRules, shanghaiTime, reactionOnly, voiceRequested, voiceDeclined } from './conversation.js'
+import { QQSourceRequestSchemas, QQSourceResponseSchemas, type SourceManagementQuery } from '@chery/protocol'
+import { conversationRules, reactionOnly, voiceRequested, voiceDeclined } from './conversation.js'
+import { runSourceDiscussionSummary } from './sourceMaintenance.js'
+export { discussionInputChunks } from './sourceMaintenance.js'
 
 function fail(code: string, message: string): never {
   throw Object.assign(new Error(message), { code })
@@ -59,6 +64,8 @@ export function createPlugin(context: IngressContext): IngressPlugin {
 }
 export class QQPlugin implements IngressPlugin {
   private readonly nativeImages: QQImageSources
+  private readonly sources: QQSourceIntake
+  private scopeApplication: Promise<void> = Promise.resolve()
   readonly defaultConfig = QQDefaultConfig
   private snapshot!: Readonly<IngressConfigSnapshot<QQConfig>>
   private readonly file: string
@@ -71,6 +78,7 @@ export class QQPlugin implements IngressPlugin {
   private readonly operations = new Set<Promise<void>>()
   private readonly preparingReplies = new Set<string>()
   private readonly aborters = new Map<string, AbortController>()
+  private readonly scopeAborters = new Map<string, AbortController>()
   private reminderBusy = false
   private appNotificationBusy = false
   private nextAppNotificationPoll = 0
@@ -83,6 +91,8 @@ export class QQPlugin implements IngressPlugin {
   private serviceVersion = 0
   private lastServiceHash = ''
   private timer?: ReturnType<typeof setInterval>
+  private readonly summaryOperations = new Map<string, AbortController>()
+  private readonly publishingDeliveries = new Set<string>()
   private readonly busy = new Set<string>()
   private readonly cleanups: Array<() => void> = []
   private readonly paused: boolean
@@ -90,6 +100,25 @@ export class QQPlugin implements IngressPlugin {
   constructor(private readonly context: IngressContext) {
     this.file = path.join(context.dataDir, 'state.json')
     this.state = readState(this.file)
+    this.sources = new QQSourceIntake(context, this.state,
+      () => ({ config: this.snapshot.config, revision: this.snapshot.revision,
+        enabled: !this.stopped && !this.paused && this.context.isEnabled() }), () => this.persist())
+    this.serviceVersion = this.state.serviceVersion + 1
+    this.state.serviceVersion = this.serviceVersion
+    for (const discussion of Object.values(this.state.discussions)) {
+      if (discussion.maintenance?.status === 'running') {
+        discussion.maintenance.status = 'pending'
+        discussion.maintenance.reason = 'SUMMARY_PROCESS_INTERRUPTED'
+        discussion.summaryPending = true
+      }
+    }
+    this.nativeImages = new QQImageSources(context, () => ({ config:this.snapshot.config,revision:this.snapshot.revision,
+      selfId:this.verifiedConnection ? this.state.identityBinding?.selfId : undefined,enabled:!this.stopped&&!this.paused&&this.context.isEnabled() }),
+      (self,target,preset)=>this.conversationKey(self,target,preset), (key,source,self,assetId,versionId)=>{
+        const known=this.state.imageSources[key]??={}
+        known[JSON.stringify([self,source.conversationType,source.targetId,source.messageId,source.elementOrdinal])]={type:'asset',partId:`qq-source:${assetId}`,assetId,assetVersionId:versionId,variant:'original',usage:'content',kind:'image'}
+        this.persist()
+      })
     this.paused =
       context.runtimeOptions.QQ_INGRESS_PAUSED === '1' ||
       context.runtimeOptions.QQ_INGRESS_PAUSED === true || process.env.QQ_INGRESS_PAUSED === '1'
@@ -102,6 +131,17 @@ export class QQPlugin implements IngressPlugin {
     if (this.snapshot && config.selfId !== this.snapshot.config.selfId) {
       this.apply = { state: 'restart_required', revision: next.revision }
       return 'restart_required'
+    }
+    for (const controller of this.summaryOperations.values()) controller.abort()
+    if (this.verifiedConnection) {
+      this.scopeApplication = this.sources.configure(this.verifiedConnection, config, next.revision)
+      await this.scopeApplication
+      const activeScopes = new Set(Object.values(this.state.sourceScopes).map(scope => scope.scopeId))
+      for (const [scopeId, controller] of this.scopeAborters) if (!activeScopes.has(scopeId)) {
+        controller.abort(); this.scopeAborters.delete(scopeId)
+      }
+      for (const job of this.state.jobs) if (job.sourceScopeId && this.state.sourceScopes[job.target]?.scopeId !== job.sourceScopeId)
+        this.aborters.get(job.requestId)?.abort()
     }
     this.snapshot = structuredClone({ ...next, config })
     this.apply = { state: 'applied', revision: next.revision }
@@ -117,6 +157,7 @@ export class QQPlugin implements IngressPlugin {
     }
   }
   start(): void {
+    if (!this.context.core.sourceConversations) fail('SOURCE_CONTEXT_UNAVAILABLE', '宿主不支持来源上下文，不能启动QQ新接收路径')
     this.stopped = false
     // A new Backend process never dispatches old QQ inputs or pending deliveries.
     closeQQQueues(this.state)
@@ -129,6 +170,15 @@ export class QQPlugin implements IngressPlugin {
     this.cleanups.push(this.context.ingress.register({ id: 'qq' }))
     this.cleanups.push(this.context.identity.registerChannel({
       channel: 'qq',
+      verifyRecord: async input => this.sources.verifies(input),
+      validateRecord: input => this.sources.verifies(input),
+      validateExecution: input => {
+        const job = this.state.jobs.find(job => job.input.eventId === input.eventId || job.questions?.replies.some(reply => reply.eventId === input.eventId))
+        if (!job || job.programSource || input.entryId !== 'qq' || !job.sourceScopeId || input.subject.userId !== job.input.senderId ||
+          input.subject.selfId !== job.input.selfId || input.subject.conversationType !== job.input.conversationType ||
+          input.subject.groupId !== (job.input.conversationType === 'group' ? job.input.targetId : undefined)) return false
+        try { this.sources.validate(job.input, job.sourceScopeId); return true } catch { return false }
+      },
       verifySource: async input => this.nativeImages.verify(input),
       validateSource: input => this.nativeImages.verify(input),
       verifyConnection: async ({ connectionId, credentialKind }) =>
@@ -137,7 +187,7 @@ export class QQPlugin implements IngressPlugin {
           ? { selfId: this.state.identityBinding.selfId } : null,
       verifyEvent: async input => {
         const job = this.state.jobs.find(j => j.input.eventId === input.eventId || j.questions?.replies.some(reply => reply.eventId === input.eventId))
-        if (!job || input.entryId !== 'qq' || input.connectionId !== this.verifiedConnection) return false
+        if (!job || job.programSource || input.entryId !== 'qq' || input.connectionId !== this.verifiedConnection) return false
         const event = job.questions?.replies.find(reply => reply.eventId === input.eventId) ?? job.input, subject = input.subject, config = this.snapshot.config
         return subject.selfId === event.selfId && subject.userId === event.senderId &&
           subject.conversationType === event.conversationType &&
@@ -312,6 +362,7 @@ export class QQPlugin implements IngressPlugin {
         if (this.connection !== id) return
         this.connection = undefined
         this.nativeImages.invalidate()
+        this.sources.invalidate()
         for (const pending of this.informationPending.values()) pending.reject(new Error('QQ disconnected'))
         this.informationPending.clear()
         for (const pending of this.lookups.values()) pending.reject(new Error('QQ disconnected'))
@@ -339,6 +390,7 @@ export class QQPlugin implements IngressPlugin {
     closeQQQueues(this.state)
     this.persist()
     this.nativeImages.invalidate()
+    this.sources.invalidate()
     for (const pending of this.informationPending.values()) pending.reject(new Error('QQ runtime stopped'))
     this.informationPending.clear()
     for (const pending of this.lookups.values()) pending.reject(new Error('QQ runtime stopped'))
@@ -346,6 +398,9 @@ export class QQPlugin implements IngressPlugin {
     this.verifiedConnection = undefined
     this.handles.clear()
     for (const controller of this.aborters.values()) controller.abort()
+    for (const controller of this.scopeAborters.values()) controller.abort()
+    this.scopeAborters.clear()
+    for (const controller of this.summaryOperations.values()) controller.abort()
     clearInterval(this.timer)
     this.timer = undefined
     this.recovered = false
@@ -418,7 +473,9 @@ export class QQPlugin implements IngressPlugin {
   private accepting(): boolean { return !this.backendState || this.backendState.phase === 'running' }
   private closing(): boolean { return this.stopped || !!this.backendState && !['running', 'requesting', 'draining'].includes(this.backendState.phase) }
   private mayDeliver(output: Outbox): boolean {
-    return !this.closing() && (this.accepting() || this.adoptedJobs.has(output.frame.data.requestId))
+    const job = this.job(output)
+    return (!job?.sourceRecords || (job.mergedInputs ?? [job.input]).every(input => this.sources.ready(input.eventId))) &&
+      !this.closing() && (this.accepting() || this.adoptedJobs.has(output.frame.data.requestId))
   }
   private backendChanged(state: BackendStopSnapshot): void {
     const previous = this.backendState
@@ -516,6 +573,7 @@ export class QQPlugin implements IngressPlugin {
         'qq.plugin.hello',
         'qq.identity.bind',
         'qq.event.submit',
+        'qq.event.receipt.get',
         'qq.delivery.result',
         'qq.request.recover',
       ].includes(method)
@@ -617,6 +675,11 @@ export class QQPlugin implements IngressPlugin {
         this.persist()
       }
       this.verifiedConnection = id
+      this.scopeApplication = this.sources.configure(id, this.snapshot.config, this.snapshot.revision)
+      await this.scopeApplication
+      await this.sources.repair(id)
+      for (const output of this.state.outbox) if (output.sourceScopeId) await this.recordOutput(output)
+      this.persist()
       return {
         bound: true as const,
         selfId: p.selfId,
@@ -658,7 +721,17 @@ export class QQPlugin implements IngressPlugin {
       this.assertChannel(id, p.selfId)
       this.assertBusiness()
       if (!this.recovered) fail('CONFLICT', '请先恢复QQ连接')
-      return this.submit(p)
+      await this.scopeApplication
+      return this.sources.locked(`${p.selfId}:${targetOf(p)}`, () => this.submit(p))
+    })
+    register('qq.event.receipt.get', async (id, p) => {
+      this.assertBusiness()
+      if (id !== this.verifiedConnection) fail('IDENTITY_REJECTED', 'QQ连接未验证')
+      return this.sources.lookup(id, p.eventId)
+    })
+    for (const method of QQFileTransportMethods) register(method, async (id, p) => {
+      this.assertChannel(id, p.selfId); this.assertBusiness()
+      return QQResponseSchemas[method].parse(await this.sources.file(id, method, p))
     })
     register('qq.file.read', async (id, p) => {
       this.assertChannel(id, p.selfId)
@@ -784,48 +857,63 @@ export class QQPlugin implements IngressPlugin {
       missingResources,
     }
   }
-  /**
-   * 构建发送给模型的 background 快照：
-   * 1) 按 eventId 去重——凡已作为某 job 的 input 落库（由 DB 历史携带）的消息剔除，
-   *    避免同一消息以 background system 条目 + DB 历史 user 消息两种格式同时进模型数组；
-   * 2) 时间标注——每条消息加 [MM-DD HH:MM] 前缀，帮助模型判断话题活跃度与时间跨度。
-   */
   private conversationKey(selfId: string, target: string, presetId: string): string {
-    return `${selfId}:${target}:${presetId}${this.state.contextEpoch ? ':' + this.state.contextEpoch : ''}`
-  }
-  private conversationFacts(job: Job) {
-    const current = job.mergedInputs ?? [job.input]
-    const recent = this.state.jobs.filter(j => j.target === job.target && j.requestId !== job.requestId && j.conversationKey === job.conversationKey && j.acceptedAt < job.acceptedAt && job.acceptedAt - j.acceptedAt <= job.snapshot.config.backgroundMaxAgeMs).slice(-4)
-    const ids = new Set([job.requestId, ...recent.map(j => j.requestId)])
-    return {
-      currentMessages: current,
-      quotedMessages: current.filter(m => m.replyToMessageId).map(m => ({ requestedMessageId: m.replyToMessageId,
-        message: [...job.background, ...(this.state.discussions[job.target]?.messages ?? [])].find(q => q.messageId === m.replyToMessageId && q.targetId === job.input.targetId) ?? null })),
-      recentRequests: recent.map(j => ({ requestId: j.requestId, messageId: j.input.messageId, senderId: j.input.senderId, text: j.input.content, state: j.state, outcome: j.outcome, failure: j.failure, replyClaim: j.reply.slice(0, 500) })),
-      deliveries: this.state.outbox.filter(o => ids.has(o.frame.data.requestId)).slice(-40).map(o => {
-        const owner = this.job(o), d = o.frame.data
-        return { eventId: d.eventId, requestId: d.requestId, sourceMessageId: owner?.input.messageId,
-          type: o.frame.type, actionKind: d.actionKind, status: o.status, confirmedAt: o.confirmedAt, messageIds: o.messageIds ?? [],
-          text: d.text?.slice(0, 500), partIndex: d.partIndex, totalParts: d.totalParts,
-          mediaCount: d.mediaFiles?.length ?? (d.mediaFile || d.asset ? 1 : undefined),
-          isFailureNotice: o.frame.type === 'qq.request.failed' }
-      }),
-      actions: this.state.outbox.filter(o => ids.has(o.frame.data.requestId) && o.frame.type === 'qq.reply.action').slice(-8).map(o => ({ requestId: o.frame.data.requestId, kind: o.frame.data.actionKind, character: o.frame.data.character, userId: o.frame.data.userId, text: o.frame.data.text, status: o.status })),
-      rule: '当前输入与引用优先；recentRequests.failure是对应运行的安全故障事实，优先于AI自述。inputImageReferences只表示输入资产引用数，不表示模型成功看图；本轮图片到期或占位不能推断上轮没收到。没有故障证据时说明无法确定，不猜下载失败或审核具体内容。recentRequests仅供承接对象和形式，replyClaim是AI自述，不是完成证据。deliveries包含相关请求的文字、视频、图片、文件、互动和程序失败通知的真实发送状态，优先于历史中的成功声明。sent只证明对应输出取得成功回执，不证明同请求其他输出成功；程序失败通知sent不代表原视频成功。failed是明确失败，pending/inflight未确认，unknown是结果不确定而非确定未送达；历史查不到也不证明未送达。actions是互动记录的补充。unknown不能自动重试旧事件；用户根据上下文催发视频时用qq_video_resend创建新发送。引用未找到时不编造。不同发送者的请求不自动视为同一任务。',
-    }
-  }
-  private snapshotBackground(discussion: { messages: QQBackground[] }, excludeEventIds: Set<string>): QQBackground[] {
-    const consumed = new Set<string>()
-    for (const j of this.state.jobs) if (j.input?.eventId) consumed.add(j.input.eventId)
-    const label = (occurredAt: number): string => `[${shanghaiTime(occurredAt)}] `
-    return structuredClone(
-      discussion.messages
-        .filter((m) => !consumed.has(m.eventId) && !excludeEventIds.has(m.eventId) && Date.now() - m.occurredAt * 1000 <= this.snapshot.config.backgroundMaxAgeMs)
-        .slice(-30)
-        .map((m) => ({ ...m, content: label(m.occurredAt) + m.content })),
-    ) as QQBackground[]
+    const scopeId = this.state.sourceScopes[target]?.scopeId
+    return `${selfId}:${target}:${presetId}${scopeId ? ':source:' + scopeId : this.state.contextEpoch ? ':' + this.state.contextEpoch : ''}`
   }
   private async submit(input: QQEventSubmitRequest) {
+    const { receipt, scope } = await this.sources.begin(this.verifiedConnection!, input)
+    if (receipt.state === 'completed') {
+      this.continueAnswer(receipt.result.handling, input)
+      return { eventId: input.eventId,
+        accepted: ['queued', 'merged', 'question_answer'].includes(receipt.result.handling.kind), receipt: receipt.result }
+    }
+    const saved = this.state.sourceReceipts[input.eventId]
+    if (saved) {
+      const result = await this.sources.complete(input, receipt, scope, saved.handling)
+      this.continueAnswer(result.handling, input)
+      return { eventId: input.eventId, accepted: ['queued', 'merged', 'question_answer'].includes(result.handling.kind), receipt: result }
+    }
+    const status = await this.sources.lookup(this.verifiedConnection!, input.eventId)
+    let handling: SourceHandling
+    if (status.state === 'pending' && status.reasonCode === 'interrupted_before_queue') handling = { kind: 'rejected', reasonCode: status.reasonCode }
+    else {
+      try {
+        await this.decideInput(input, receipt, scope)
+        const job = this.state.jobs.find(job => (job.mergedInputs ?? [job.input]).some(value => value.eventId === input.eventId))
+        const question = this.state.jobs.find(job => job.questions?.replies.some(value => value.eventId === input.eventId))
+        const item = question?.questions?.items.find(item => this.state.outbox.some(output => output.frame.data.eventId === item.eventId && output.messageIds?.includes(input.replyToMessageId!)))
+        handling = question && item ? { kind: 'question_answer', requestId: question.requestId, runId: question.questions!.runId,
+          batchId: question.questions!.batchId, questionId: item.questionId } : job
+          ? terminal(job) ? { kind: 'rejected', reasonCode: job.reason ?? 'NOT_EXECUTED' }
+            : { kind: job.sourceRecords?.[0]?.recordId === receipt.record.recordId ? 'queued' : 'merged', requestId: job.requestId }
+          : { kind: 'background' }
+      } catch (error) {
+        const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : 'INPUT_REJECTED'
+        handling = { kind: 'rejected', reasonCode: code }
+      }
+    }
+    const result = await this.sources.complete(input, receipt, scope, handling)
+    this.continueAnswer(handling, input)
+    setImmediate(() => this.tick())
+    return { eventId: input.eventId, accepted: ['queued', 'merged', 'question_answer'].includes(handling.kind), receipt: result }
+  }
+  private readonly answering = new Set<string>()
+  private continueAnswer(handling: SourceHandling, input: QQEventSubmitRequest): void {
+    if (handling.kind !== 'question_answer') return
+    const job = this.state.jobs.find(job => job.requestId === handling.requestId)
+    if (!job || this.answering.has(job.requestId) || job.state !== 'paused' ||
+      this.closing() || (!this.accepting() && !this.adoptedJobs.has(job.requestId)) ||
+      !['WAITING_FOR_ANSWER', 'QUESTION_RESUME_UNCONFIRMED'].includes(job.reason ?? '') ||
+      !job.questions?.items.every(question => question.answer !== undefined) ||
+      !job.questions.replies.every(reply => this.sources.ready(reply.eventId))) return
+    this.answering.add(job.requestId)
+    const operation = this.resumeQuestions(job, input).catch(() => {}).finally(() => {
+      this.answering.delete(job.requestId); this.operations.delete(operation)
+    })
+    this.operations.add(operation)
+  }
+  private async decideInput(input: QQEventSubmitRequest, sourceReceipt: SourceReceipt, scope: SourceScope) {
     const permission=this.snapshot.config
     if(input.selfId!==this.state.identityBinding?.selfId || input.senderId===input.selfId ||
       !(input.conversationType==='group'?permission.groups.includes(input.targetId):input.senderId===input.targetId&&permission.users.includes(input.targetId)))
@@ -837,7 +925,6 @@ export class QQPlugin implements IngressPlugin {
       if (receipt.hash !== hash) fail('CONFLICT', 'QQ事件标识冲突')
       const interrupted = this.state.jobs.find(job => job.reason === 'QUESTION_RESUME_UNCONFIRMED' && job.questions?.replies.some(reply => reply.eventId === input.eventId))
       if (!this.accepting() && (!interrupted || !this.adoptedJobs.has(interrupted.requestId))) fail('BACKEND_STOPPING', '服务已关闭')
-      if (interrupted) await this.resumeQuestions(interrupted, input)
       return { eventId: input.eventId, accepted: receipt.accepted }
     }
     if (Object.keys(this.state.receipts).length >= 10000) fail('INPUT_QUEUE_FULL', 'QQ收件记录已满')
@@ -856,27 +943,26 @@ export class QQPlugin implements IngressPlugin {
       if (!this.accepting() && !this.adoptedJobs.has(job.requestId)) fail('BACKEND_STOPPING', '服务已关闭')
       if (!input.content.trim() || input.attachments?.length || item.answer !== undefined) fail('CONFLICT', '问题答案为空、带附件或已经提交')
       const preset = permission.bindings[job.target]
-      if (!preset || this.context.core.resolvePreset(preset).presetId !== job.snapshot.presetId) fail('IDENTITY_REJECTED', '原任务配置已变化')
+      if (!preset || this.context.core.resolvePreset(preset).presetId !== job.snapshot.presetId || job.sourceScopeId !== scope.scopeId)
+        fail('IDENTITY_REJECTED', '原任务配置已变化')
       item.answer = input.content
+      item.answerRecord = sourceReceipt.record
       job.questions!.replies.push(input)
       this.state.receipts[input.eventId] = { hash, accepted: true }
       this.persist()
-      if (job.questions!.items.every(q => q.answer !== undefined)) {
-        await this.resumeQuestions(job, input)
-      }
       return { eventId: input.eventId, accepted: true }
     }
     if (!this.accepting()) fail('BACKEND_STOPPING', '服务已关闭')
     const target = targetOf(input),
       c = this.snapshot.config,
       now = Date.now()
-    const discussion = this.state.discussions[target] ??= { active: false, lastActivity: 0, startedAt: 0, closedAt: 0, summary: '', summaryPending: false, summaryRetryAt: 0, messages: [] }
+    if (this.state.discussions[target]?.sourceScopeId !== scope.scopeId) {
+      this.summaryOperations.get(target)?.abort()
+      delete this.state.discussions[target]
+    }
+    const discussion = this.state.discussions[target] ??= { active: false, lastActivity: 0, startedAt: 0,
+      closedAt: 0, sourceScopeId: scope.scopeId, summaryPending: false, summaryRetryAt: 0 }
     if (input.conversationType === 'group' && c.groups.includes(input.targetId)) {
-      const cached = { ...input, content: Array.from(input.content).slice(0, c.backgroundMaxChars).join('') }
-      discussion.messages.push(cached)
-      discussion.messages = discussion.messages.filter(m => now - m.occurredAt * 1000 <= c.backgroundMaxAgeMs).slice(-c.historyLimit)
-      let chars = discussion.messages.reduce((n, m) => n + Array.from(m.content).length, 0)
-      while (chars > c.backgroundMaxChars && discussion.messages.length > 1) chars -= Array.from(discussion.messages.shift()!.content).length
       if (discussion.active && now - discussion.lastActivity > c.continuationTtlMs && !this.state.jobs.some(j => j.target === target && !terminal(j))) { discussion.active = false; discussion.closedAt = now; discussion.summaryPending = true }
     }
     let accepted =
@@ -911,12 +997,15 @@ export class QQPlugin implements IngressPlugin {
     const overloaded = this.state.jobs.filter(j => j.target === target && !terminal(j)).length >= c.queueLimit
     this.state.receipts[input.eventId] = { hash, accepted }
     if (accepted && resource && (preset || unavailable)) {
+      this.summaryOperations.get(target)?.abort()
       if (input.conversationType === 'group' && !videoUrl) {
         if (!discussion.active) discussion.startedAt = now
         discussion.active = true
         discussion.lastActivity = now
       }
-      const pending = this.state.jobs.find(j => j.target === target && j.state === 'queued' && !j.douyinUrl)
+      const pending = this.state.jobs.find(j => j.target === target && j.state === 'queued' && !j.douyinUrl &&
+        j.sourceScopeId === scope.scopeId && j.input.senderId === input.senderId && j.snapshot.revision === this.snapshot.revision &&
+        !j.sourceSnapshot && !this.busy.has(target) && now - (j.lastInputAcceptedAt ?? j.acceptedAt) <= c.messageMergeMs)
       if (!unavailable && !overloaded && pending && (pending.mergedInputs?.length ?? 1) < 16 && input.conversationType === 'group' && !videoUrl) {
         pending.mergedInputs ??= [pending.input]
         if (pending.mergedInputs.length >= 16) {
@@ -925,15 +1014,19 @@ export class QQPlugin implements IngressPlugin {
           return { eventId: input.eventId, accepted: false }
         }
         pending.mergedInputs.push(input)
+        pending.sourceRecords!.push(sourceReceipt.record)
+        pending.version++
         if (input.mentionedBot) this.output(pending, 'qq.message.ack', { messageId: input.messageId, emojiId: '178', state: 'queued', queuePosition: 0 })
-        pending.background = this.snapshotBackground(discussion, new Set(pending.mergedInputs.map(message => message.eventId)))
-        if (input.mentionedBot) { pending.input = input; pending.decisionRequired = false }
-        pending.acceptedAt = now
+        if (input.mentionedBot) pending.decisionRequired = false
+        pending.lastInputAcceptedAt = now
         this.persist()
         return { eventId: input.eventId, accepted: true }
       }
       const job: Job = {
         requestId: randomUUID(),
+        version: 1,
+        sourceScopeId: scope.scopeId,
+        sourceRecords: [sourceReceipt.record],
         input,
         target,
         conversationKey: this.conversationKey(input.selfId, target, resource.presetId),
@@ -947,9 +1040,10 @@ export class QQPlugin implements IngressPlugin {
         },
         state: 'queued',
         acceptedAt: now,
+        lastInputAcceptedAt: now,
         reply: '',
         decisionRequired: input.conversationType === 'group' && !input.mentionedBot && !videoUrl,
-        background: input.conversationType === 'group' ? this.snapshotBackground(discussion, new Set([input.eventId])) : [],
+        background: [],
         toolIds: [],
         pendingIcons: [],
         pendingActivity: [],
@@ -1453,7 +1547,8 @@ export class QQPlugin implements IngressPlugin {
         continue
       }
       if (job.state === 'queued') {
-        if (!job.douyinUrl && job.input.conversationType === 'group' && Date.now() - job.acceptedAt < job.snapshot.config.messageMergeMs) continue
+        if (job.sourceRecords && !(job.mergedInputs ?? [job.input]).every(input => this.sources.ready(input.eventId))) continue
+        if (!job.douyinUrl && job.input.conversationType === 'group' && Date.now() - (job.lastInputAcceptedAt ?? job.acceptedAt) < job.snapshot.config.messageMergeMs) continue
         if (job.decisionRequired && !this.state.discussions[job.target]?.active) { job.state = 'completed'; this.persist(); continue }
         this.busy.add(target)
         const operation = this.execute(job)

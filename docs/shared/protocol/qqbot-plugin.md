@@ -17,7 +17,7 @@
 - `qq.plugin.hello` 请求 `{protocolVersion:1,pluginVersion,selfId,capabilities}`；响应必须包含 `{protocolVersion:1,backendVersion,selfId,authenticated:true,capabilities}`。必需能力为 `qq.event.submit`、`qq.delivery.result`、`qq.request.recover` 及下文全部标准事件名；后端必须把连接凭据绑定到 selfId。
 - `qq.identity.bind` 紧接握手执行，只接受插件从 NapCat 原生 Action 验证得到的 `{selfId,sourceType:'napcat-action',validation:'accepted',verifiedAt,sourceVersion}`。后端持久化首次绑定，重复绑定必须保持同一 selfId；身份变化、过期来源、配置身份不一致或绑定缺失均拒绝业务激活，不回退到 hello、连接自报或旧配置猜测。
 - 群内明确 @ 允许空正文，原文保持为空，不补造用户话语；发送者、@ 标志、引用和近期讨论共同提供意图，只有影响执行且无法确定时才澄清。无 @、无正文且无附件的空输入仍拒绝。
-- `qq.event.submit` 成功响应为 `{eventId,accepted:boolean}`，只表示收件结论，不等待模型结束。超时或断线后该输入处于未知状态，插件不自动重交。
+- `qq.event.submit` 成功响应为 `{eventId,accepted:boolean,receipt}`；`receipt` 含原文引用、保存结论及背景/排队/合并/答案/拒绝结果。只表示收件结论，不等待模型结束。超时或断线后通过 `qq.event.receipt.get` 查询，不自动重交或重新执行；原文已保存不能当作已排队。
 - `qq.request.recover` 请求 `{selfId}`，响应 `{events:[],service}`；events 使用下文通知形状，service 见[停止与恢复](#服务停止与空队列恢复)。后端须在返回后恢复该连接的实时通知，并保证回放与实时通知的 eventId 和每目标 seq 顺序一致。插件先取得并应用服务快照，再补报仍属于同实例的已知发送结果并处理恢复事件；恢复完成前拒绝新输入。
 - 每条 QQ 输出通知的 data 至少有 `{eventId,requestId,selfId,conversationType,targetId,seq}`。seq 是每个 selfId/目标跨请求连续递增的发送序号，首条为 1；状态类不发送事件不占该序号。ACK 另有原消息 `messageId` 和 QQ 表情编号 `emojiId`；群聊不发送“收到”文字，尝试添加原消息表情回应，私聊仍发送“收到”，等待/正文/失败另有 `text`，工具另有 `icon`。`qq.reply.completed`、`qq.request.recovered`、`qq.connection.state` 只传状态，不产生 QQ 文本。失败终态使用固定文案 `刚才处理失败了，请稍后再试。`。
 - `qq.delivery.result` 请求 `{eventId,requestId,selfId,conversationType,targetId,seq,status,messageIds,sentAt?,activity,terminal}`；status 为 `sent`、`unknown` 或 `failed`，响应必须为 `{eventId,recorded:true}`。`failed` 仅用于明确的原生操作拒绝，超时或发送结果不明使用 `unknown`，不能据此重发动作。activity 仅在 ACK、等待、工具实际发送成功后为 true；最后正文片段、媒体、失败通知及 `completeReply:true` 的原生动作标记 terminal。正文另带 `partIndex`（从 1 开始）及 `totalParts`。已知 sent 仅补报结果，unknown 不能靠重连自动解除。
@@ -80,7 +80,13 @@ NapCat安装包内只有 `index.mjs` 和 `package.json`，运行依赖已包含�
 
 取消关联停止采集、发布和新读取，保留文件；不自动补旧图。未采集或不可用图片仅保留原发言和占位，不回退图片 URL。现有历史采用轮次、文字图片顺序、native/role/tool/未知/审批规则及模型输入 5000000 字节、质量 85 均独立保留。自动验证入口为 `qqImageIngress.test.ts`、`qqImagePublication.test.ts`、`qqNativeAcquisition.test.ts`；真实 QQ 与模型验收需另行授权。
 
-文件消息使用有序 `parts`（文字段或附件序号），`attachments` 保留类型、名称、MIME 和 HTTPS 下载地址；缺少可用下载地址时保留明确的不可读取说明，不读取任意本地路径。只有附件的输入也可提交。后端仅在渠道名单与预设验证通过后下载、保存和加入模型输入；下载拒绝私网地址，不把第三方 URL 直接当成已保存资产。
+原文使用必需的 `sourceParts` 保存文字、@、引用、附件和不支持元素的真实顺序，`pN` 对应原消息段位置；`attachments.partId` 与其一一对应，不能用媒体序号代替。`content` 必须与原文字段拼接一致。`parts` 仅为展示信息，不作为来源身份；URL 不进入模型来源正文。只有附件的输入也可提交，采集仍受当前名单、预设、固定来源及资产权限约束。
+
+### 来源上下文与 ZIP 输入
+
+双端握手要求 `qq.source.context.v2`、`qq.event.receipt.get` 与 `qq.source.file.ingest`，缺失不退回旧正文组装。来源范围、收件及固定快照的校验入口为 [`sourceContext.ts`](../../../packages/protocol/src/sourceContext.ts)；Backend 保存事实，QQ 模块决定排队和业务参与，NapCat 不持有另一份选择规则。每次模型请求按固定来源和本请求真实工具过程准备，不再次加入旧 Core 展示正文。管理查询由 [`sourceManagement.ts`](../../../packages/protocol/src/sourceManagement.ts) 校验，读取不触发业务，正文可按 Unicode 字符继续读取。
+
+ZIP 通道由 [`qqFiles.ts`](../../../packages/protocol/src/qqFiles.ts) 定义。NapCat 使用官方群或私聊文件 URL，Backend 导入失败时允许受限分块上传；确认未知先查实际偏移，不重复发布。原生 `get_file` 返回的本地文件只可在已知数据根内安全读取，不信任事件中的任意路径。失败更新附件版本，不改原消息。独立持久目录、命令挂载、安全解压及同权限文本读取见 [QQ 模块](../../../plugins/qq/README.md#隔离执行与资源配置)。当前来源改造尚未部署，离线检查不能代替实际迁移、QQ/模型及界面验收。
 
 通用文件结果使用 `qq.reply.file`，携带固定 `assetId`、`assetVersionId`、名称、MIME、字节数和 SHA-256。原生适配器通过已认证 `qq.file.read` 按 256 KiB 读取，只能读取该条待发送通知对应的资产；核对长度和摘要后交给 NapCat 原生发送。图片/音频/视频发送原生消息段，其他文件使用原生上传。临时文件不是公开链接，完成或失败后删除；不支持或不确定发送时按既有回执规则报告，不能把本地保存成功当作 QQ 发送成功。`qq.reply.file` 仅在 `completeReply:true` 时为末条发送。
 
@@ -90,7 +96,7 @@ NapCat安装包内只有 `index.mjs` 和 `package.json`，运行依赖已包含�
 
 只有文件、没有正文的成功结果由最后一条待发文件通知承担 `completeReply:true`，不追加“没有内容”之类相反说明；只有文件确认发送后才完成请求。
 
-`qq.event.submit` 至少包含：`eventId`、`selfId`、`conversationType`、`targetId`、`senderId`、`senderName`、`messageId`、`content`、`mentionedBot`、`occurredAt`。群目标使用 `conversationType=group` 和群号；私聊使用 `conversationType=private` 和用户号，私聊不得携带群号。
+`qq.event.submit` 至少包含：`eventId`、`selfId`、`conversationType`、`targetId`、`senderId`、`senderName`、`messageId`、`sourceParts`、`content`、`mentionedBot`、`occurredAt`。群目标使用 `conversationType=group` 和群号；私聊使用 `conversationType=private` 和用户号，私聊不得携带群号。入站 `occurredAt` 为整数 Unix 秒，Backend 保存平台时间时转毫秒；收件时间和发送确认时间为毫秒，不能统一乘 1000。
 
 后端先校验插件连接、`selfId`、发送者和目标，再决定是否接受。插件不得在本地复制群名单、私聊名单、预设、记忆或队列规则。拒绝也要返回稳定错误码，不返回内部诊断。
 

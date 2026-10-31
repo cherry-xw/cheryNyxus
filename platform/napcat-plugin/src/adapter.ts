@@ -1,6 +1,8 @@
 import { NativeImages } from './nativeImages.js'
 import { queryInformation } from './information.js'
 import { sendAssetFile } from './files.js'
+import { acquireSourceZips } from './sourceFiles.js'
+import { QQEventSubmitResponseSchema, type SourcePart, type QQEventSubmitRequest } from '@chery/protocol'
 import type { QQNotification, QQServiceState } from '@chery/protocol'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -120,16 +122,32 @@ function normalizedEvent(event: any, selfId: string): Record<string, unknown> | 
   const senderId = qqId(event.user_id)
   const messageId = String(event.message_id)
   const conversationType = group ? 'group' : 'private'
-  const attachments: Array<{ type: string; name?: string; url?: string; mimeType?: string }> = []
+  if (event.message.length > 200 || event.message.filter((segment: any) => ['image', 'video', 'file', 'record'].includes(segment?.type)).length > 30) return undefined
+  const attachments: Array<{ partId: string; type: string; name?: string; url?: string; mimeType?: string }> = []
+  const sourceParts: SourcePart[] = []
   const parts: Array<{ type: 'text'; text: string } | { type: 'attachment'; index: number }> = []
-  for (const segment of Array.isArray(event.message) ? event.message : []) {
-    if (segment?.type === 'text') parts.push({ type: 'text', text: String(segment.data?.text ?? '') })
-    else if (['image', 'video', 'file', 'record'].includes(segment?.type) && attachments.length < 30) {
+  for (const [position, segment] of event.message.entries()) {
+    const partId = `p${position}`
+    if (segment?.type === 'text') { const text = String(segment.data?.text ?? ''); parts.push({ type: 'text', text }); sourceParts.push({ partId, type: 'text', text }) }
+    else if (segment?.type === 'at') sourceParts.push({ partId, type: 'mention', target: segment.data?.qq === 'all' ? 'all' : qqId(segment.data?.qq) })
+    else if (segment?.type === 'reply') {
+      const id = nativeMessageId(segment.data?.id)
+      if (!id) return undefined
+      sourceParts.push({ partId, type: 'reply', platformMessageId: id })
+    } else if (['image', 'video', 'file', 'record'].includes(segment?.type)) {
       let url: string | undefined
       if (segment.type !== 'image') try { const parsed = new URL(String(segment.data?.url ?? '')); if (parsed.protocol === 'https:' && !parsed.username && !parsed.password) url = parsed.href } catch {}
       parts.push({ type: 'attachment', index: attachments.length })
-      attachments.push({ type: segment.type, ...(segment.data?.name ? { name: String(segment.data.name).slice(0, 200) } : {}), ...(url ? { url } : {}) })
-    } else if (segment?.type === 'json') { const text = textOf([segment]); if (text) parts.push({ type: 'text', text }) }
+      sourceParts.push({ partId, type: 'attachment', attachmentId: `pending:${partId}` })
+      const name = segment.data?.name ?? segment.data?.file_name ?? (segment.type === 'file' ? segment.data?.file : undefined)
+      const mimeType = segment.data?.mime_type ?? segment.data?.mime
+      attachments.push({ partId, type: segment.type, ...(name ? { name: String(name).slice(0, 200) } : {}),
+        ...(mimeType ? { mimeType: String(mimeType).slice(0, 200) } : {}), ...(url ? { url } : {}) })
+    } else if (segment?.type === 'json') {
+      const text = textOf([segment])
+      if (text) { parts.push({ type: 'text', text }); sourceParts.push({ partId, type: 'text', text }) }
+      else sourceParts.push({ partId, type: 'unsupported', sourceType: 'json' })
+    } else sourceParts.push({ partId, type: 'unsupported', sourceType: String(segment?.type ?? 'unknown').slice(0, 100) || 'unknown' })
   }
   return {
     eventId: `qq:${selfId}:${conversationType}:${targetId}:${messageId}`,
@@ -140,9 +158,10 @@ function normalizedEvent(event: any, selfId: string): Record<string, unknown> | 
     senderName: String(event.sender?.card || event.sender?.nickname || ''),
     ...(Array.isArray(event.message) && event.message.some((x: any) => x?.type === 'reply') ? { replyToMessageId: String(event.message.find((x: any) => x?.type === 'reply').data?.id ?? '') } : {}),
     attachments,
+    sourceParts,
     ...(Array.isArray(event.message) ? { parts } : {}),
     messageId,
-    content: textOf(event.message).trim(),
+    content: sourceParts.filter(part => part.type === 'text').map(part => part.text).join(''),
     mentionedBot:
       group &&
       Array.isArray(event.message) &&
@@ -418,25 +437,18 @@ export class Adapter {
       if (!this.images.allows(event)) return
       const input = normalize(event, this.selfId)
        if (!input || !input.content && !(input.attachments as unknown[])?.length && !input.mentionedBot) return
+      const imagePositions = await this.images.sourcePositions(event)
+      for (const file of input.attachments as NonNullable<QQEventSubmitRequest['attachments']>) {
+        if (file.type === 'image') {
+          const source = imagePositions.get(Number(file.partId.slice(1)))
+          if (source) file.nativeSourceId = source
+        }
+      }
       const previous = this.journal.events[String(input.eventId)]
       if (previous) return
       if (Object.keys(this.journal.events).length >= 10000) { this.current = { ...this.status(), state: 'journal-full', ready: false }; return }
       const generation = this.fileGeneration
       const deliveryEpoch = this.deliveryEpoch
-      const raw = event as { message?: Array<{ type: string; data?: Record<string, unknown> }> }
-      const segments = raw.message?.filter(segment => ['image', 'video', 'file', 'record'].includes(segment.type)).slice(0, 30) ?? []
-      const attachments = input.attachments as Array<{ url?: string }>
-      for (const [index, segment] of segments.entries()) {
-        if (segment.type === 'image') { delete attachments[index]?.url; continue }
-        if (attachments[index]?.url) continue
-        const fileId = segment.data?.file_id ?? segment.data?.file
-        if (typeof fileId !== 'string' || !/^[a-zA-Z0-9._-]{1,512}$/.test(fileId) || ['.', '..'].includes(fileId)) continue
-        try {
-          const result = await this.action('get_file', { file_id: fileId })
-          const url = new URL(String((result?.data ?? result)?.url ?? ''))
-          if (url.protocol === 'https:' && !url.username && !url.password) attachments[index]!.url = url.href
-        } catch { /* 缺少安全下载地址时，后端保留不可读取说明。 */ }
-      }
       if (this.stopped || generation !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch || this.journal.events[String(input.eventId)]) return
       if (await this.closedInput(event)) return
       if (this.stopped || generation !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) return
@@ -452,11 +464,18 @@ export class Adapter {
         }
         this.ctx.logger.warn?.('QQ input submission rejected', {eventId: input.eventId, code: response.error?.code ?? 'unknown'}); return
       }
+      const received = QQEventSubmitResponseSchema.parse(response.data)
       this.journal.events[String(input.eventId)] = {
         hash: hash(input),
-        accepted: Boolean((response.data as any)?.accepted),
+        accepted: received.accepted,
       }
       saveJournal(this.journalFile, this.journal)
+      const signal = this.lifetime.signal
+      const validate = () => { signal.throwIfAborted(); if (this.stopped || generation !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) throw new Error('stale connection') }
+      // Acquisition cannot hold the target receipt/queue lock or prevent new messages from admission.
+      void acquireSourceZips(event, input as QQEventSubmitRequest, { wire: this.wire,
+        action: (name, params) => this.action(name, params), dataRoot: (this.ctx.core as { dataPath?: string } | undefined)?.dataPath,
+        signal, validate }).catch(() => this.ctx.logger.warn?.('QQ source file acquisition unavailable'))
     } catch {
       this.ctx.logger.warn?.('QQ input admission unavailable')
     }

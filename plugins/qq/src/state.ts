@@ -2,13 +2,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
 import { z } from 'zod'
-import { MessagePartSchema, FileOperationRecordSchema } from '@chery/protocol'
+import { MessagePartSchema, FileOperationRecordSchema, SourceScopeSchema, SourceRecordRefSchema, SourceSnapshotSchema,
+  SourceHandlingSchema, SourceReceiptResultSchema } from '@chery/protocol'
 import { parseStored } from './files.js'
 import { FailureSchema } from './failure.js'
 import {
   QQConfigSchema,
   QQEventSubmitRequestSchema,
   QQNotificationSchema,
+  QQDeliveryResultRequestSchema,
 } from '../../../packages/protocol/src/qq.js'
 
 // Stored background includes assistant outputs; ingress input remains strict.
@@ -24,7 +26,8 @@ export const JobSchema = z.object({
   coreRunId: z.string().optional(),
   replyActionComplete: z.boolean().optional(),
   videoResendSource: z.string().optional(),
-  input: QQEventSubmitRequestSchema,
+  input: z.object(QQEventSubmitRequestSchema.shape).strict(),
+  programSource: z.enum(['reminder', 'app_notification']).optional(),
   target: z.string(),
   conversationKey: z.string(),
   snapshot: z.object({
@@ -37,6 +40,13 @@ export const JobSchema = z.object({
   }),
   state: z.enum(['queued', 'running', 'sending', 'completed', 'failed', 'paused', 'cancelled']),
   acceptedAt: z.number(),
+  lastInputAcceptedAt: z.number().optional(),
+  version: z.number().int().positive().default(1),
+  sourceScopeId: z.string().optional(),
+  sourceRecords: z.array(SourceRecordRefSchema).max(16).optional(),
+  sourceSnapshot: SourceSnapshotSchema.optional(),
+  sourceMaintenance: z.lazy(() => SourceMaintenanceSchema).optional(),
+  executionNotice: z.string().optional(),
   reason: z.string().optional(),
   reply: z.string(),
   inputParts: z.array(MessagePartSchema).optional(),
@@ -60,9 +70,17 @@ export const JobSchema = z.object({
   failure: FailureSchema.optional(),
   questions: z.object({
     batchId: z.string(), runId: z.string(),
-    items: z.array(z.object({ questionId: z.string(), question: z.string(), options: z.array(z.object({ label: z.string(), description: z.string().optional() })), multiSelect: z.boolean(), eventId: z.string(), answer: z.string().optional() })),
+    items: z.array(z.object({ questionId: z.string(), question: z.string(), options: z.array(z.object({ label: z.string(), description: z.string().optional() })), multiSelect: z.boolean(), eventId: z.string(), answer: z.string().optional(), answerRecord: SourceRecordRefSchema.optional() })),
     replies: z.array(QQEventSubmitRequestSchema).default([]), commandId: z.string().optional(),
   }).optional(),
+}).superRefine((job, ctx) => {
+  if (job.programSource) {
+    if (job.input.content || job.input.sourceParts.length || job.input.attachments?.length || job.input.parts?.length ||
+      job.input.replyToMessageId || job.sourceRecords?.length || job.sourceSnapshot || job.inputParts?.length || job.mergedInputs?.length)
+      ctx.addIssue({ code: 'custom', message: 'Program output cannot carry a user input' })
+  } else if (!QQEventSubmitRequestSchema.safeParse(job.input).success) {
+    ctx.addIssue({ code: 'custom', message: 'Invalid job input' })
+  }
 })
 export type Job = z.infer<typeof JobSchema>
 export const OutboxSchema = z.object({
@@ -73,12 +91,37 @@ export const OutboxSchema = z.object({
   notBefore: z.number().optional(),
   confirmedAt: z.number().optional(),
   resultHash: z.string().optional(),
-  messageIds: z.array(z.string().max(100)).max(100).optional(),
+  messageIds: z.array(z.string().max(100)).max(1000).optional(),
+  result: QQDeliveryResultRequestSchema.optional(),
+  sourceScopeId: z.string().optional(),
+  sourceRecordedHash: z.string().optional(),
 })
 export type Outbox = z.infer<typeof OutboxSchema>
+export function terminalDelivery(output: Pick<Outbox, 'frame'>): boolean {
+  const { type, data } = output.frame
+  return (['qq.reply.action', 'qq.reply.file'].includes(type) && data.completeReply === true) ||
+    ['qq.request.failed', 'qq.reply.video', 'qq.reply.images'].includes(type) ||
+    type === 'qq.reply.part' && data.partIndex === data.totalParts
+}
+export const SourceMaintenanceSchema = z.object({
+  operationId: z.string(), scopeId: z.string(), qqConfigRevision: z.number().int().nonnegative(),
+  status: z.enum(['pending', 'running', 'completed', 'failed', 'cancelled']),
+  phase: z.enum(['history', 'memory', 'summary', 'commit']),
+  startedAt: z.number(), completedAt: z.number().optional(), throughEventId: z.string().optional(),
+  lastSummaryAt: z.number().optional(), attempt: z.number().int().nonnegative(), reason: z.string().optional(),
+  candidate: z.string().optional(), snapshotId: z.string().optional(), baseSummaryId: z.string().optional(),
+  memoryComplete: z.boolean().optional(), memoryInputs: z.array(z.string()).optional(),
+  memoryIndex: z.number().int().nonnegative().optional(), memoryBatch: z.unknown().optional(),
+  memoryReceipts: z.array(z.object({ operationId: z.string(), fingerprint: z.string() }).strict()).default([]),
+  prerequisiteReceipt: z.string().optional(),
+  summaryInputs: z.array(z.string()).optional(), summaryResults: z.array(z.string()).optional(),
+  summaryLevel: z.number().int().nonnegative().optional(),
+  discussionStartedAt: z.number(), discussionClosedAt: z.number(),
+}).strict()
+export type SourceMaintenance = z.infer<typeof SourceMaintenanceSchema>
 export const StateSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     serviceVersion: z.number().int().nonnegative().safe().default(0),
     contextEpoch: z.string().max(100).default(''),
     imageSources: z.record(z.string(), z.record(z.string(), MessagePartSchema)).default({}),
@@ -86,7 +129,15 @@ export const StateSchema = z
     outbox: z.array(OutboxSchema),
     seq: z.record(z.string(), z.number().int().nonnegative()),
     receipts: z.record(z.string(), z.object({ hash: z.string(), accepted: z.boolean() })),
-    discussions: z.record(z.string(), z.object({ active: z.boolean(), lastActivity: z.number(), startedAt: z.number().default(0), closedAt: z.number().default(0), summary: z.string().default(''), summaryPending: z.boolean().default(false), summaryRetryAt: z.number().default(0), messages: z.array(QQBackgroundSchema) })).default({}),
+    sourceScopes: z.record(z.string(), SourceScopeSchema).default({}),
+    sourceReceipts: z.record(z.string(), z.object({
+      scopeId: z.string(), receiptId: z.string(), version: z.number().int().positive(), record: SourceRecordRefSchema,
+      subject: z.object({ selfId: z.string(), userId: z.string(), conversationType: z.enum(['group', 'private']), groupId: z.string().optional() }),
+      handling: SourceHandlingSchema, pendingReceipt: z.boolean(), result: SourceReceiptResultSchema.optional(),
+    })).default({}),
+    discussions: z.record(z.string(), z.object({ active: z.boolean(), lastActivity: z.number(), startedAt: z.number(),
+      closedAt: z.number(), sourceScopeId: z.string(), summaryPending: z.boolean(), summaryRetryAt: z.number(),
+      maintenance: SourceMaintenanceSchema.optional() }).strict()).default({}),
     windows: z.record(
       z.string(),
       z.object({ remaining: z.number().int().min(0).max(5), expiresAt: z.number() }),
@@ -100,7 +151,7 @@ export const StateSchema = z
 export type State = z.infer<typeof StateSchema>
 export function emptyState(): State {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     serviceVersion: 0,
     contextEpoch: '',
     imageSources: {},
@@ -108,6 +159,8 @@ export function emptyState(): State {
     outbox: [],
     seq: {},
     receipts: {},
+    sourceScopes: {},
+    sourceReceipts: {},
     windows: {},
     discussions: {},
     configWrites: {},

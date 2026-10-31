@@ -53,6 +53,23 @@ export class NativeImages {
     const pending=(await this.bounded(Promise.all(candidates.map(async([m,work])=>await this.shortId(m)===String(event?.message_id)?work:[])),this.lifetime.signal)).flat()
     await this.bounded(Promise.all(pending),this.lifetime.signal,(QQImageQueueCapacity+1)*this.acquisitionMs)
   }
+  async sourcePositions(event: any): Promise<Map<number, string>> {
+    const matches = (await Promise.all([...this.admissions.keys()].filter(m => String(m.senderUin) === String(event.user_id) &&
+      (m.chatType === 2 ? 'group' : 'private') === event.message_type &&
+      String(m.chatType === 2 ? m.peerUid : m.senderUin) === String(event.message_type === 'group' ? event.group_id : event.user_id))
+      .map(async m => await this.shortId(m) === String(event.message_id) ? m : undefined))).filter(Boolean)
+    if (matches.length !== 1) return new Map()
+    const sources = await Promise.all(this.admissions.get(matches[0])!) as Array<{ source: QQImageSource; authority: { sourceEventId: string } }>
+    const positions = event.message.flatMap((segment: any, position: number) => segment?.type === 'image' ? [position] : []) as number[]
+    if (sources.length !== positions.length) return new Map()
+    const result = new Map<number, string>()
+    for (const [ordinal, position] of positions.entries()) {
+      const matching = sources.filter(entry => entry.source.elementOrdinal === ordinal && entry.source.messageId === String(event.message_id))
+      if (matching.length !== 1) return new Map()
+      result.set(position, matching[0]!.authority.sourceEventId)
+    }
+    return result
+  }
   private readonly startedAt=Math.floor(Date.now()/1000)
   private seen=new Set<string>()
   private completions=new Map<string,{resolve:(v:any)=>void;reject:()=>void;timer:ReturnType<typeof setTimeout>}>()
