@@ -1,11 +1,15 @@
 import { z } from 'zod'
 import type { IngressContext } from '@chery/plugin-api'
+import { SourceRecordRefSchema } from '@chery/protocol'
 
 export const participationSchema = z.object({
   action: z.enum(['reply', 'wait', 'end']),
   batchId: z.string().min(1).max(256),
   reason: z.string().max(300),
-}).strict()
+  anchorRecord: SourceRecordRefSchema.optional(),
+}).strict().superRefine((value, ctx) => {
+  if ((value.action === 'reply') !== !!value.anchorRecord) ctx.addIssue({ code: 'custom', path: ['anchorRecord'], message: 'reply必须选择真实来源；其他动作不得选择来源' })
+})
 export type ParticipationDecision = z.infer<typeof participationSchema>
 
 export function participationTool(decide: (requestId: string, input: ParticipationDecision) => void): Parameters<IngressContext['tools']['register']>[0] {
@@ -16,7 +20,8 @@ export function participationTool(decide: (requestId: string, input: Participati
         description: 'QQ内部参与判断。只有qq.discussion提供decisionRequired时调用。判断是否真的需要助手参与，而非只判断话题相关。reply继续回答，wait暂不插话，end讨论结束。不得与其他工具并行调用，理由不发给用户。',
         parameters: { type: 'object', properties: {
           action: { type: 'string', enum: ['reply', 'wait', 'end'] },
-          batchId: { type: 'string' }, reason: { type: 'string' },
+           batchId: { type: 'string' }, reason: { type: 'string' },
+           anchorRecord: { type: 'object', description: 'reply必填，qq.discussion候选中的{recordId,revision}；wait/end不传' },
         }, required: ['action', 'batchId', 'reason'], additionalProperties: false },
       } },
       supervisionLevel: 0,

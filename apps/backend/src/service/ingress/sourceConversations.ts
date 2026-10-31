@@ -18,6 +18,9 @@ function authority(ownerId: string, input: IngressSourceAuthorization): SourceAu
   if (identity.source !== 'plugin' || identity.ownerId !== ownerId || !identity.entryId || !identity.channel || !subject)
     sourceContextError('IDENTITY_REJECTED')
   return {
+    async deriveReply(ownerId, input) {
+      return repo().deriveReply(authority(ownerId, input), input.scopeId, input.observationRequestId, input.anchor)
+    },
     ownerId, channel: identity.channel, selfId: subject.selfId, conversationType: subject.conversationType,
     targetId: subject.conversationType === 'group' ? subject.groupId! : subject.userId,
     actorId: subject.userId, purpose: input.purpose, validate: input.validateIdentity,

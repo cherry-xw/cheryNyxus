@@ -316,6 +316,8 @@ export class IngressHost {
         validateIdentity: () => { requireActive(); connection.validate() } }
     }
     const sourceConversations: import('./api.js').IngressSourceConversations | undefined = core.sourceConversations ? {
+      deriveReply: input => core.sourceConversations!.deriveReply(id, { ...sourceAuthorization(input, 'execution'),
+        scopeId: input.scopeId, observationRequestId: input.observationRequestId, anchor: input.anchor }),
       prepareSummary: async input => core.sourceConversations!.prepareSummary(id, { ...await maintenanceAuthorization(input),
         operationId: input.operationId, purpose: input.purpose, qqConfigRevision: input.qqConfigRevision, parentSnapshotId: input.parentSnapshotId }),
       summaryStatus: async input => core.sourceConversations!.summaryStatus(id, { ...await maintenanceAuthorization(input), operationId: input.operationId }),
@@ -366,7 +368,7 @@ export class IngressHost {
         return core.sourceConversations!.receiptStatus(id, authorization)
       },
       freeze: input => core.sourceConversations!.freeze(id, { ...sourceAuthorization(input, 'execution'), scopeId: input.scopeId,
-        requestId: input.requestId, actorRecord: input.actorRecord, inputRecords: input.inputRecords, expectedSelectionRevision: input.expectedSelectionRevision, policy: input.policy }),
+        requestId: input.requestId, actorRecord: input.actorRecord, inputRecords: input.inputRecords, expectedSelectionRevision: input.expectedSelectionRevision, policy: input.policy, observationCandidates: input.observationCandidates }),
       history: input => core.sourceConversations!.history(id, { ...sourceAuthorization(input, 'execution'), scopeId: input.scopeId,
         runId: input.runId, count: input.count, cursor: input.cursor }),
       readText: input => core.sourceConversations!.readText(id, { ...sourceAuthorization(input, 'execution'), scopeId: input.scopeId,

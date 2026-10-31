@@ -56,6 +56,7 @@ export interface SourceFreezeInput {
   inputRecords: SourceRecordRef[]
   expectedSelectionRevision: number
   policy: SourceSelectionPolicy
+  observationCandidates?: SourceRecordRef[]
 }
 export interface SourceScopeTarget {
   conversationType: 'group' | 'private'
@@ -189,6 +190,16 @@ export function initSourceContextTables(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS source_summary_operations (
       operation_id TEXT PRIMARY KEY, scope_id TEXT NOT NULL REFERENCES source_scopes(scope_id),
       fingerprint TEXT NOT NULL, data_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS source_derived_replies (
+      request_id TEXT PRIMARY KEY, observation_request_id TEXT NOT NULL UNIQUE,
+      scope_id TEXT NOT NULL REFERENCES source_scopes(scope_id), record_id TEXT NOT NULL REFERENCES source_records(record_id),
+      record_revision INTEGER NOT NULL, actor_id TEXT NOT NULL, permission_revision INTEGER NOT NULL,
+      UNIQUE(scope_id,record_id,record_revision)
+    );
+    CREATE TABLE IF NOT EXISTS source_observation_batches (
+      request_id TEXT PRIMARY KEY, scope_id TEXT NOT NULL REFERENCES source_scopes(scope_id),
+      permission_revision INTEGER NOT NULL, candidates_json TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS source_summaries (
       summary_id TEXT PRIMARY KEY, scope_id TEXT NOT NULL REFERENCES source_scopes(scope_id),
@@ -763,6 +774,8 @@ export class SourceContextRepository {
       if (scope.selectionRevision !== input.expectedSelectionRevision) sourceContextError('REVISION_CONFLICT')
       const current = this.read(authority, scopeId, input.inputRecords)
       if (current.some(record => record.sender.id !== authority.actorId)) sourceContextError('IDENTITY_REJECTED')
+      if (input.observationCandidates && (!input.observationCandidates.length || input.observationCandidates.length > 1000 ||
+        this.read(authority, scopeId, input.observationCandidates).some(record => record.origin !== 'member'))) sourceContextError('INVALID_PARAMS')
       const policy = input.policy
       if (!Number.isSafeInteger(policy.historyLimit) || policy.historyLimit < 1 || policy.historyLimit > 1000 ||
         !Number.isSafeInteger(policy.backgroundMaxAgeMs) || policy.backgroundMaxAgeMs < 0 ||
@@ -835,6 +848,8 @@ export class SourceContextRepository {
         actorRecord: input.actorRecord, inputRecords: input.inputRecords, orderedItems, quoteRelations: quotes })
       this.db.prepare('INSERT INTO source_snapshots(snapshot_id,request_id,scope_id,fingerprint,data_json) VALUES (?,?,?,?,?)')
         .run(snapshotId, input.requestId, scopeId, fingerprint, JSON.stringify(snapshot))
+      if (input.observationCandidates) this.db.prepare('INSERT INTO source_observation_batches VALUES (?,?,?,?)')
+        .run(input.requestId, scopeId, scope.permissionRevision, JSON.stringify(input.observationCandidates))
       for (const set of omittedSets) this.db.prepare('INSERT INTO source_omitted_sets(set_id,snapshot_id,refs_json) VALUES (?,?,?)')
         .run(set.setId, snapshotId, JSON.stringify(set.refs))
       authority.validate()
@@ -971,9 +986,52 @@ export class SourceContextRepository {
       .run(resultId, scopeId, kind, JSON.stringify(value))
     return resultId
   }
+  /** Only a persisted successful observation tool decision can authorize a derived request. */
+  deriveReply(authority: SourceAuthority, scopeId: string, observationRequestId: string, anchor: SourceRecordRef) {
+    return this.db.transaction(() => {
+      const scope = this.scope(authority, scopeId, ['execution'])
+      const batch = this.db.prepare('SELECT candidates_json,permission_revision FROM source_observation_batches WHERE request_id=? AND scope_id=?')
+        .get(observationRequestId, scopeId) as { candidates_json: string; permission_revision: number } | undefined
+      if (!batch || batch.permission_revision !== scope.permissionRevision || !(JSON.parse(batch.candidates_json) as SourceRecordRef[])
+        .some(candidate => canonical(candidate) === canonical(anchor))) sourceContextError('PERMISSION_DENIED')
+      const row = this.db.prepare('SELECT data_json FROM source_snapshots WHERE request_id=? AND scope_id=? AND parent_snapshot_id IS NULL')
+        .get(observationRequestId, scopeId) as JsonRow | undefined
+      if (!row) sourceContextError('PERMISSION_DENIED')
+      const snapshot = SourceSnapshotSchema.parse(JSON.parse(row.data_json))
+      if (!snapshot.actorRecord || this.read(authority, scopeId, [snapshot.actorRecord])[0]?.sender.id !== authority.actorId ||
+        !snapshot.orderedItems.some(item => item.type === 'message' && item.recordId === anchor.recordId && item.revision === anchor.revision && item.parts.some(part => part.mode === 'expand')))
+        sourceContextError('PERMISSION_DENIED')
+      const record = this.read(authority, scopeId, [anchor])[0]!
+      const messages = this.completedRunMessages(authority, scopeId, observationRequestId)
+      const permitted = messages.some(message => message.body.role === 'assistant' && (message.body.senseCalls ?? []).some(call => {
+        if (call.name !== 'qq_participation_decide') return false
+        let args: { action?: string; batchId?: string; anchorRecord?: SourceRecordRef }
+        try { args = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : call.arguments as typeof args } catch { return false }
+        return args?.action === 'reply' && args.batchId === observationRequestId && canonical(args.anchorRecord) === canonical(anchor) &&
+          messages.some(result => result.body.role === 'sense' && result.body.id === call.id && result.state === 'completed' && (() => {
+            try { return JSON.parse(result.body.content).accepted === true } catch { return false }
+          })())
+      }))
+      if (!permitted || record.origin !== 'member') sourceContextError('PERMISSION_DENIED')
+      const receipt = this.db.prepare("SELECT event_id,result_json FROM source_receipts WHERE scope_id=? AND record_id=? AND state='completed'")
+        .get(scopeId, anchor.recordId) as { event_id: string; result_json: string } | undefined
+      if (!receipt) sourceContextError('PERMISSION_DENIED')
+      const handling = (JSON.parse(receipt.result_json) as SourceReceiptResult).handling
+      if (handling.kind !== 'background' && !(['queued','merged'].includes(handling.kind) && 'requestId' in handling && handling.requestId === observationRequestId))
+        sourceContextError('PERMISSION_DENIED')
+      const requestId = `qq-reply-${sourceFingerprint([scopeId, observationRequestId, anchor])}`
+      const old = this.db.prepare('SELECT * FROM source_derived_replies WHERE observation_request_id=? OR (scope_id=? AND record_id=? AND record_revision=?)')
+        .all(observationRequestId, scopeId, anchor.recordId, anchor.revision) as Array<{ request_id: string; permission_revision: number }>
+      if (old.some(value => value.request_id !== requestId || value.permission_revision !== scope.permissionRevision)) sourceContextError('SOURCE_CONFLICT')
+      if (!old.length) this.db.prepare('INSERT INTO source_derived_replies VALUES (?,?,?,?,?,?,?)')
+        .run(requestId, observationRequestId, scopeId, anchor.recordId, anchor.revision, record.sender.id, scope.permissionRevision)
+      authority.validate()
+      return { requestId, eventId: receipt.event_id, record }
+    })()
+  }
   ensureRun(authority: SourceAuthority, scopeId: string, requestId: string, runId: string): string {
     return this.db.transaction(() => {
-      this.scope(authority, scopeId, ['execution'])
+      const scope = this.scope(authority, scopeId, ['execution'])
       SourceIdSchema.parse(runId)
       const row = this.db.prepare('SELECT data_json FROM source_snapshots WHERE request_id=? AND scope_id=? AND parent_snapshot_id IS NULL')
         .get(requestId, scopeId) as JsonRow | undefined
@@ -982,7 +1040,9 @@ export class SourceContextRepository {
       if (!snapshot.actorRecord || this.read(authority, scopeId, [snapshot.actorRecord])[0]?.sender.id !== authority.actorId ||
         snapshot.inputRecords.some(reference => !this.db.prepare(`SELECT 1 FROM source_receipts WHERE scope_id=? AND record_id=?
           AND state='completed' AND json_extract(result_json,'$.handling.requestId')=?
-          AND json_extract(result_json,'$.handling.kind') IN ('queued','merged')`).get(scopeId, reference.recordId, requestId)))
+           AND json_extract(result_json,'$.handling.kind') IN ('queued','merged')`).get(scopeId, reference.recordId, requestId) &&
+           !this.db.prepare(`SELECT 1 FROM source_derived_replies WHERE request_id=? AND scope_id=? AND record_id=?
+             AND record_revision=? AND actor_id=? AND permission_revision=?`).get(requestId, scopeId, reference.recordId, reference.revision, authority.actorId, scope.permissionRevision)))
         sourceContextError('PERMISSION_DENIED')
       const old = this.db.prepare('SELECT request_id,run_id,scope_id FROM source_runs WHERE request_id=? OR run_id=?')
         .all(requestId, runId) as Array<{ request_id: string; run_id: string; scope_id: string }>

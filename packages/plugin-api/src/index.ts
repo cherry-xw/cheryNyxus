@@ -224,6 +224,7 @@ export interface IngressSourceSummaryProgress {
 }
 /** No method here is a public RPC or accepts a caller-selected owner. */
 export interface IngressSourceConversations {
+  deriveReply(input: IngressSourceContext & { observationRequestId: string; anchor: SourceRecordRef }): Promise<{ requestId: string; eventId: string; record: SourceRecord }>
   history(input: IngressSourceContext & { runId: string; count?: number; cursor?: string }): Promise<import('@chery/protocol').SourceHistoryResult>
   readText(input: IngressSourceContext & { runId: string; textRefId: string; cursor?: string }): Promise<import('@chery/protocol').SourceTextPage>
   prepareSummary(input: IngressSourceMaintenanceContext & { operationId: string; purpose: 'capacity' | 'discussion'; qqConfigRevision: number; parentSnapshotId?: string }): Promise<IngressSourceSummaryPreparation>
@@ -240,7 +241,7 @@ export interface IngressSourceConversations {
   completeReceipt(input: IngressSourceContext & { receiptId: string; expectedVersion: number; handling: SourceHandling }): Promise<SourceReceiptResult>
   receiptStatus(input: Omit<IngressSourceContext, 'scopeId'> & { eventId: string }): Promise<SourceReceiptStatus>
   freeze(input: IngressSourceContext & { requestId: string; actorRecord: SourceRecordRef; inputRecords: SourceRecordRef[];
-    expectedSelectionRevision: number; policy: IngressSourcePolicy }): Promise<SourceSnapshot>
+    expectedSelectionRevision: number; policy: IngressSourcePolicy; observationCandidates?: SourceRecordRef[] }): Promise<SourceSnapshot>
   read(input: IngressSourceContext & { selection: SourceReadSelection }): Promise<SourceReadResult>
   snapshot(input: IngressSourceContext & { snapshotId: string }): Promise<SourceSnapshot>
   attachment(input: IngressSourceContext & { attachmentId: string; version?: number }): Promise<SourceAttachmentVersion>
@@ -252,6 +253,7 @@ export interface IngressSourceConversations {
   readAttachmentChunk(input: IngressSourceContext & { attachmentId: string; version: number; offset: number }): Promise<IngressFileChunk>
 }
 export interface IngressSourceConversationsAdapter {
+  deriveReply(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; observationRequestId: string; anchor: SourceRecordRef }): Promise<{ requestId: string; eventId: string; record: SourceRecord }>
   history(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; runId: string; count?: number; cursor?: string }): Promise<import('@chery/protocol').SourceHistoryResult>
   readText(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; runId: string; textRefId: string; cursor?: string }): Promise<import('@chery/protocol').SourceTextPage>
   prepareSummary(ownerId: string, input: IngressSourceMaintenanceAuthorization & { operationId: string; purpose: 'capacity' | 'discussion'; qqConfigRevision: number; parentSnapshotId?: string }): Promise<IngressSourceSummaryPreparation>
@@ -268,7 +270,7 @@ export interface IngressSourceConversationsAdapter {
   completeReceipt(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; receiptId: string; expectedVersion: number; handling: SourceHandling }): Promise<SourceReceiptResult>
   receiptStatus(ownerId: string, input: IngressSourceAuthorization & { eventId: string }): Promise<SourceReceiptStatus>
   freeze(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; requestId: string; actorRecord: SourceRecordRef;
-    inputRecords: SourceRecordRef[]; expectedSelectionRevision: number; policy: IngressSourcePolicy }): Promise<SourceSnapshot>
+    inputRecords: SourceRecordRef[]; expectedSelectionRevision: number; policy: IngressSourcePolicy; observationCandidates?: SourceRecordRef[] }): Promise<SourceSnapshot>
   read(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; selection: SourceReadSelection }): Promise<SourceReadResult>
   snapshot(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; snapshotId: string }): Promise<SourceSnapshot>
   attachment(ownerId: string, input: IngressSourceAuthorization & { scopeId: string; attachmentId: string; version?: number }): Promise<SourceAttachmentVersion>
