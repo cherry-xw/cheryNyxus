@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { QQPlugin } from '../src/index.js'
-import { mergeFailure, FailureSchema } from '../src/failure.js'
+import { mergeFailure, FailureSchema, entryFailure, EntryFailureSchema } from '../src/failure.js'
 
 const detail = { status:'failed', retryable:false, feedback:{code:'BRAIN_IMAGE_REVIEW_REJECTED',tracingId:'6486dd90',description:'secret URL'}, detail:'secret-key' }
 function fixture() {
@@ -37,5 +37,38 @@ describe('safe persistent failure facts',()=>{
   it('unknown errors never invent an image acquisition cause',()=>{
     const failure=mergeFailure(undefined,'run',{code:'UNKNOWN_URL',message:'secret'},0)
     expect(failure.code).toBeUndefined();expect(failure.text).toContain('原因尚未确定')
+  })
+  it('stores only declared entry codes and phases, never raw or nested error text', () => {
+    const cause = Object.assign(new Error('secret /private/path ?token=secret'), { code: 'PREVIOUS_WORK_PENDING', cause: { key: 'secret' } })
+    expect(EntryFailureSchema.parse(entryFailure(cause, 'core_submit'))).toMatchObject({ code: 'PREVIOUS_WORK_PENDING', phase: 'core_submit' })
+    for (const error of [new Error('secret'), { code: 'secret', message: 'secret' }, { code: { toString: () => 'PREVIOUS_WORK_PENDING' } }, null]) {
+      const failure = entryFailure(error, 'source_files')
+      expect(failure.code).toBe('EXECUTION_ENTRY_FAILED')
+      expect(JSON.stringify(failure)).not.toContain('secret')
+    }
+  })
+  it('records entry rejection with the request ID and sends one generic safe notice', async () => {
+    const { plugin, job } = fixture()
+    plugin.closing = () => false
+    plugin.context.log = vi.fn()
+    plugin.executeRequest = vi.fn(async (_job, stage) => {
+      stage('core_submit')
+      throw Object.assign(new Error('secret credentials'), { code: 'BACKEND_RESUME_REQUIRED' })
+    })
+    await plugin.execute(job)
+    expect(job.entryFailure).toMatchObject({ code: 'BACKEND_RESUME_REQUIRED', phase: 'core_submit' })
+    expect(job).toMatchObject({ state: 'failed', reason: 'BACKEND_RESUME_REQUIRED' })
+    expect(plugin.context.log).toHaveBeenCalledWith('qq.request.entry.failed', expect.objectContaining({ requestId: 'request', code: 'BACKEND_RESUME_REQUIRED', phase: 'core_submit' }))
+    expect(JSON.stringify([job.entryFailure, plugin.context.log.mock.calls, plugin.state.outbox])).not.toContain('secret')
+    expect(plugin.state.outbox).toHaveLength(1)
+  })
+  it('does not change or notify a task already cancelled by shutdown on late rejection', async () => {
+    const { plugin, job } = fixture()
+    plugin.context.log = vi.fn()
+    plugin.executeRequest = vi.fn(async () => { job.state = 'cancelled'; job.reason = 'BACKEND_STOPPED'; throw new Error('late') })
+    await plugin.execute(job)
+    expect(job).toMatchObject({ state: 'cancelled', reason: 'BACKEND_STOPPED' })
+    expect(job.entryFailure).toBeUndefined(); expect(plugin.state.outbox).toEqual([])
+    expect(plugin.context.log).not.toHaveBeenCalled()
   })
 })

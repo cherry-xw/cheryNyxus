@@ -42,7 +42,7 @@ import { participationTool } from './participation.js'
 import { informationTool, sourceTextTool } from './information.js'
 import { findVideoSource, videoResendTool } from './videoResend.js'
 import os from 'node:os'
-import { mergeFailure } from './failure.js'
+import { mergeFailure, entryFailure, type EntryFailurePhase } from './failure.js'
 import { createReplyTools, type ReplyAction } from './replyTools.js'
 import { QQImageSources } from './imageSources.js'
 import { QQImageTransportMethods } from '@chery/protocol'
@@ -1657,7 +1657,6 @@ export class QQPlugin implements IngressPlugin {
         if (job.decisionRequired && !this.state.discussions[job.target]?.active) { job.state = 'completed'; this.persist(); continue }
         this.busy.add(target)
         const operation = this.execute(job)
-          .catch(() => this.failureNotice(job, '这次处理失败，未完成，请稍后再试。'))
           .finally(() => { this.busy.delete(target); this.operations.delete(operation); this.aborters.delete(job.requestId) })
         this.operations.add(operation)
       } else if (
@@ -1709,6 +1708,20 @@ export class QQPlugin implements IngressPlugin {
     }
   }
   private async execute(job: Job): Promise<void> {
+    let phase: EntryFailurePhase = 'preparation'
+    try {
+      await this.executeRequest(job, next => { phase = next })
+    } catch (error) {
+      // Shutdown already cancelled old work. A late rejection must not send it again.
+      if (terminal(job) || this.closing() || this.paused) return
+      const failure = entryFailure(error, phase)
+      job.entryFailure = failure
+      job.reason = failure.code
+      this.context.log('qq.request.entry.failed', { requestId: job.requestId, ...failure })
+      this.failureNotice(job, '这次处理失败，未完成，请稍后再试。')
+    }
+  }
+  private async executeRequest(job: Job, stage: (phase: EntryFailurePhase) => void): Promise<void> {
     const controller = new AbortController()
     this.aborters.set(job.requestId, controller)
     const resource = this.context.core.resolvePreset(job.snapshot.preset)
@@ -1771,6 +1784,7 @@ export class QQPlugin implements IngressPlugin {
     job.state = 'running'
     job.nextWaitAt ??= Date.now() + job.snapshot.config.waitIntervalSeconds * 1000
     this.persist()
+    stage('source_context')
     const identity = await this.bindIdentity(job)
     this.handles.set(job.requestId, identity)
     const api = this.context.core.sourceConversations!, scopeId = job.sourceScopeId
@@ -1807,6 +1821,7 @@ export class QQPlugin implements IngressPlugin {
         mentionedBot: item.record.parts.some(part => part.type === 'mention' && part.target === job.input.selfId) })
     }
     this.persist()
+    stage('source_files')
     await this.nativeImages.waitFor(job.background, controller.signal)
     await this.sources.refreshImages(job.sourceSnapshot)
     await this.sources.wait(job.sourceSnapshot, controller.signal)
@@ -1835,6 +1850,7 @@ export class QQPlugin implements IngressPlugin {
         asset: { assetId: first.asset.id, assetVersionId: first.asset.versionId, sizeBytes: first.asset.sizeBytes, sha256: first.asset.sha256 } })
       await api.registerWorkspace({ entryId: 'qq', identity, scopeId, attachmentId: attachment.attachmentId, version: attachment.version, mount })
     }
+    stage('core_submit')
     const response = await this.context.core.submit({
       entryId: 'qq', identity, signal: controller.signal,
       sourceCapacity: (input, signal) => this.prepareSourceCapacity(job, input, signal),

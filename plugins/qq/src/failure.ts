@@ -10,6 +10,20 @@ export const FailureSchema = z.object({
 })
 export type Failure = z.infer<typeof FailureSchema>
 
+export const EntryFailurePhaseSchema = z.enum(['preparation', 'source_context', 'source_files', 'core_submit'])
+export type EntryFailurePhase = z.infer<typeof EntryFailurePhaseSchema>
+const EntryFailureCodeSchema = z.enum(['EXECUTION_ENTRY_FAILED', 'PREVIOUS_WORK_PENDING', 'BACKEND_RESUME_REQUIRED',
+  'IDENTITY_REJECTED', 'SOURCE_CONTEXT_UNAVAILABLE', 'PERMISSION_DENIED', 'AUTH_REQUIRED', 'SOURCE_CONFLICT',
+  'REVISION_CONFLICT', 'NOT_FOUND', 'FILE_TOO_LARGE', 'FILE_INVALID', 'ENOENT', 'EACCES', 'ENOSPC', 'EIO',
+  'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN'])
+export const EntryFailureSchema = z.object({ code: EntryFailureCodeSchema, phase: EntryFailurePhaseSchema, occurredAt: z.number().finite() }).strict()
+
+/** Unknown codes and all error prose are discarded, including nested causes. */
+export function entryFailure(error: unknown, phase: EntryFailurePhase): z.infer<typeof EntryFailureSchema> {
+  const parsed = EntryFailureCodeSchema.safeParse(typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined)
+  return { code: parsed.success ? parsed.data : 'EXECUTION_ENTRY_FAILED', phase, occurredAt: Date.now() }
+}
+
 /** Only declared codes and registry prose survive; never copy provider/error prose. */
 export function mergeFailure(previous: Failure | undefined, runId: string, data: Record<string, unknown>, imageReferences: number): Failure {
   const feedback = data.feedback as {code?: unknown; tracingId?: unknown} | undefined

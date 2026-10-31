@@ -155,6 +155,18 @@ it('installed QQ starts a new trusted source request behind an empty restart gat
   expect(getSoulDb().prepare('SELECT request_id FROM source_runs WHERE run_id=?').all(s.state().jobs[0].coreRunId)).toEqual([{ request_id: s.state().jobs[0].requestId }])
 }, 20000)
 
+it('installed QQ persists a safe entry failure when Core submit rejects before allocating a run', async () => {
+  const s = await setup()
+  vi.spyOn(s.core, 'submit').mockRejectedValue(Object.assign(new Error('secret /private/path ?token=secret'), { code: 'BACKEND_RESUME_REQUIRED' }))
+  await s.call('qq.event.submit', event('302'))
+  await vi.waitFor(() => expect(s.state().jobs[0]?.state).toBe('failed'), { timeout: 10000 })
+  const job = s.state().jobs[0]
+  expect(job.coreRunId).toBeUndefined()
+  expect(job.entryFailure).toMatchObject({ code: 'BACKEND_RESUME_REQUIRED', phase: 'core_submit' })
+  expect(job.reason).toBe('BACKEND_RESUME_REQUIRED')
+  expect(JSON.stringify(s.state())).not.toContain('secret')
+  expect(s.state().outbox.filter((out: any) => out.frame.type === 'qq.request.failed')).toHaveLength(1)
+}, 20000)
 
 it.each([0,1,2])('real ask tool and original run question continuation; resume fault mode=%s',async lost=>{
   resetMockProviderState()

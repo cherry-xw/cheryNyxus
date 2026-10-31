@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { MessagePartSchema, FileOperationRecordSchema, SourceScopeSchema, SourceRecordRefSchema, SourceSnapshotSchema,
   SourceHandlingSchema, SourceReceiptResultSchema } from '@chery/protocol'
 import { parseStored } from './files.js'
-import { FailureSchema } from './failure.js'
+import { FailureSchema, EntryFailureSchema } from './failure.js'
 import {
   QQConfigSchema,
   QQEventSubmitRequestSchema,
@@ -68,6 +68,7 @@ export const JobSchema = z.object({
   outcome: z.string().optional(),
   failureText: z.string().optional(),
   failure: FailureSchema.optional(),
+  entryFailure: EntryFailureSchema.optional(),
   questions: z.object({
     batchId: z.string(), runId: z.string(),
     items: z.array(z.object({ questionId: z.string(), question: z.string(), options: z.array(z.object({ label: z.string(), description: z.string().optional() })), multiSelect: z.boolean(), eventId: z.string(), answer: z.string().optional(), answerRecord: SourceRecordRefSchema.optional() })),
