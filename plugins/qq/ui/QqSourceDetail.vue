@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { useQqSources } from './useQqSources'
 import { sourceSelectionKey } from './useQqSources'
-import { hasRangeSources, revealSourceTarget, sourceGapHeading } from './sourceNavigation'
+import { hasRangeSources, revealSourceTarget, sourceGapHeading, sourceReturnTarget } from './sourceNavigation'
+import { groupSourceSections } from './sourceSections'
 import SourceBody from './SourceBody.vue'
 import QqSourceParts from './QqSourceParts.vue'
 const props=defineProps<{requestId:string;reader:ReturnType<typeof useQqSources>}>()
@@ -10,6 +11,7 @@ const current=computed(()=>props.reader.sessions[props.requestId])
 const entries=computed(()=>props.reader.entries(props.requestId))
 const selectedKey=computed(()=>current.value?.selection?sourceSelectionKey(current.value.selection):'')
 const view=computed(()=>current.value?.views[selectedKey.value])
+const sections=computed(()=>groupSourceSections(view.value?.data?.items??[]))
 const relationId=ref(''),navigationError=ref(''),returnTo=ref<HTMLButtonElement>()
 const relationTarget=ref<HTMLElement>()
 let navigationVersion=0
@@ -37,7 +39,7 @@ async function relationOpen(id:string,event:Event){
 const targets=new Map<string,HTMLElement>()
 function target(id:string,value:unknown){if(value instanceof HTMLElement)targets.set(id,value);else targets.delete(id)}
 async function jump(itemId:string){const version=++navigationVersion;navigationError.value='';try{const targetId=await props.reader.locate(props.requestId,{itemId});await revealSourceTarget(()=>targets.get(targetId),()=>version===navigationVersion)}catch(error){if(version===navigationVersion)navigationError.value=error instanceof Error?error.message:'定位失败'}}
-async function back(){const target=returnTo.value;resetRelation();const version=navigationVersion;await revealSourceTarget(()=>target,()=>version===navigationVersion)}
+async function back(){const original=returnTo.value;resetRelation();const version=navigationVersion;await revealSourceTarget(()=>sourceReturnTarget<HTMLElement>(original,id=>document.getElementById(id)),()=>version===navigationVersion)}
 async function refresh(){await props.reader.index(props.requestId);await props.reader.view(props.requestId,false,true)}
 </script>
 <template>
@@ -46,6 +48,10 @@ async function refresh(){await props.reader.index(props.requestId);await props.r
     <p v-if="current?.error" role="alert">{{ current.error }} <button type="button" @click="reader.index(requestId)">重试读取</button></p>
     <p v-if="!current?.index" role="status">{{ current?.loading?'正在读取目录…':'尚未读取来源。' }}</p>
     <template v-else>
+      <div class="source-columns">
+      <div class="source-input">
+      <section class="source-panel" aria-label="版本与调用状态">
+        <h5 class="source-panel-heading">版本与调用状态</h5>
       <p class="source-meta">截至 {{ time(current.index.observedAt) }}（北京时间）。只读查看不会调用模型、解压或重发消息。</p>
       <p v-if="current.index.availability!=='available'">{{ labels[current.index.availability] }}</p>
       <p v-if="current.newer">发现更新的输入版本；当前仍显示原选择。<button type="button" @click="reader.latest(requestId)">查看最新版本</button></p>
@@ -56,38 +62,39 @@ async function refresh(){await props.reader.index(props.requestId);await props.r
         </select>
         <button type="button" v-if="current.index.nextCursor" :disabled="current.loading" @click="reader.index(requestId,true)">继续读取步骤目录</button>
       </div>
-      <div class="source-columns">
-      <section class="source-panel source-input" aria-label="所选模型输入">
-        <h5 class="source-panel-heading">所选模型输入</h5>
         <p v-if="view?.loading" role="status">正在读取所选版本…</p>
         <p v-if="view?.error" role="alert">{{ view.error }} <button type="button" @click="reader.restart(requestId)">从这份输入开头重新读取</button></p>
-        <template v-if="view?.data">
-        <p class="source-meta" role="status">所选版本：{{ view.data.state==='snapshot_only'?'固定消息选择':attempts[view.data.attemptState??'prepared'] }} · {{ view.data.items.length }} / {{ view.data.total }} 项 · 时间近似排序，同秒先后不保证。</p>
-        <details v-if="view.data.state==='available'"><summary>模型、预算与本次返回用量</summary>
+        <p v-if="view?.data" class="source-meta" role="status">所选版本：{{ view.data.state==='snapshot_only'?'固定消息选择':attempts[view.data.attemptState??'prepared'] }} · {{ view.data.items.length }} / {{ view.data.total }} 项 · 时间近似排序，同秒先后不保证。</p>
+      </section>
+      <details v-if="view?.data?.state==='available'" class="source-panel"><summary class="source-panel-heading">模型、预算与本次返回用量</summary>
+        <div class="source-scroll" role="region" aria-label="模型预算与用量内容" tabindex="0">
           <p>{{ view.data.model }} · {{ view.data.protocol }} · 配置版本 {{ view.data.runtimeConfigRevision }}</p>
           <p v-if="view.data.budget">输入估算 {{ view.data.budget.estimatedTextTokens }} token · 计量 {{ view.data.budget.tokenSource }} · 有效上限 {{ view.data.budget.effectiveCeiling??'未测量' }} · 输出预留 {{ view.data.budget.outputReserve??'未记录' }} · 媒体用量未测量。</p><p v-else>未记录本版本预算。</p>
           <p>本次返回用量：输入 {{ view.data.usage?.inputTokens??'未记录' }} · 输出 {{ view.data.usage?.outputTokens??'未记录' }}。不与预检估算混算。</p>
-        </details>
-        <div class="source-scroll source-input-scroll" role="region" aria-label="所选模型输入内容" tabindex="0">
-        <ol class="source-items"><li v-for="item in view.data.items" :key="item.itemId">
+        </div>
+      </details>
+      <section v-for="section in sections" :key="section.key" class="source-panel" :aria-label="section.heading">
+        <h5 class="source-panel-heading">{{ section.heading }}</h5>
+        <div class="source-scroll source-input-scroll" role="region" :aria-label="`${section.heading}内容`" tabindex="0">
+        <ol class="source-items"><li v-for="item in section.items" :key="item.itemId">
           <div class="source-item-heading">
           <h6 :ref="element=>target(item.itemId,element)" tabindex="-1">{{ item.type==='message'?`${item.sender.name||'未记录昵称'}（${item.sender.id}）`:item.type==='summary'?'历史资料摘要':item.type==='gap'?sourceGapHeading(item.reason):item.type==='data'?'附加资料':item.type==='restricted'?'内容受限':'本次工具过程' }}</h6>
           <p v-if="item.type==='message'" class="source-meta">{{ time(item.time.at) }}（{{ item.time.basis==='platform_sent'?'平台发送时间':item.time.basis==='delivery_confirmed'?'发送确认时间':'接收时间' }}） · {{ item.origin==='member'?'成员消息':'机器人真实发送' }} · {{ item.selectionReasons.map(reason=>({current:'本次输入',recent:'近期背景',explicit_quote:'明确引用'}[reason])).join('、') }}</p>
           </div>
           <template v-if="item.type==='message'">
-            <QqSourceParts :request-id="requestId" :parts="item.parts" :selection="item.partSelection" :files="view.data.fileInputs" :record-id="item.source.recordId" :reader="reader" @relation="relationOpen" />
+            <QqSourceParts :request-id="requestId" :parts="item.parts" :selection="item.partSelection" :files="view?.data?.fileInputs" :record-id="item.source.recordId" :navigation-id="`source-trigger-${requestId}:${item.itemId}`" :reader="reader" @relation="relationOpen" />
             <details><summary>来源信息</summary><p>{{ item.source.recordId }} / {{ item.source.revision }} · 平台消息 {{ item.platformMessageIds.join('、') }}</p></details>
           </template>
-          <template v-else-if="item.type==='summary'"><p>{{ item.purpose==='capacity'?'容量整理':'讨论总结' }} · 已提交 · 覆盖 {{ item.coveredRecordCount }} 条来源。</p><SourceBody :request-id="requestId" :body="item.body" :reader="reader" /><button type="button" :aria-expanded="relationId===item.relationId" :aria-controls="`source-relations-${requestId}`" @click="relationOpen(item.relationId,$event)">查看摘要覆盖来源</button></template>
-          <template v-else-if="item.type==='gap'"><p>{{ item.reason==='omitted_from_context'?`已保存、未纳入所选输入：${item.knownMessageCount} 条；其中 ${item.partiallySummarizedCount??0} 条部分内容已有摘要。`:item.reason==='history_start'?'本地记录从此范围起点开始；更早消息未必接收。':item.reason==='reception_unconfirmed'?'此区间接收情况未确认，数量未知。':'来源已删除。' }}</p><button v-if="hasRangeSources(item)" type="button" :aria-expanded="relationId===item.relationId" :aria-controls="`source-relations-${requestId}`" @click="relationOpen(item.relationId,$event)">查看范围来源</button></template>
+          <template v-else-if="item.type==='summary'"><p>{{ item.purpose==='capacity'?'容量整理':'讨论总结' }} · 已提交 · 覆盖 {{ item.coveredRecordCount }} 条来源。</p><SourceBody :request-id="requestId" :body="item.body" :reader="reader" /><button :id="`source-trigger-${requestId}:${item.itemId}:summary`" type="button" :aria-expanded="relationId===item.relationId" :aria-controls="`source-relations-${requestId}`" @click="relationOpen(item.relationId,$event)">查看摘要覆盖来源</button></template>
+          <template v-else-if="item.type==='gap'"><p>{{ item.reason==='omitted_from_context'?`已保存、未纳入所选输入：${item.knownMessageCount} 条；其中 ${item.partiallySummarizedCount??0} 条部分内容已有摘要。`:item.reason==='history_start'?'本地记录从此范围起点开始；更早消息未必接收。':item.reason==='reception_unconfirmed'?'此区间接收情况未确认，数量未知。':'来源已删除。' }}</p><button v-if="hasRangeSources(item)" :id="`source-trigger-${requestId}:${item.itemId}:gap`" type="button" :aria-expanded="relationId===item.relationId" :aria-controls="`source-relations-${requestId}`" @click="relationOpen(item.relationId,$event)">查看范围来源</button></template>
           <SourceBody v-else-if="item.type==='data'" :request-id="requestId" :body="item.body" :reader="reader" />
           <p v-else-if="item.type==='tool_result'">{{ item.toolName }} · {{ item.status==='completed'?'已返回工具结果':'工具结果状态未知' }}。未登记可公开正文，不公开原始参数、思考或原始工具输出。</p>
           <p v-else>当前无权读取；不展示来源身份或文件名。</p>
         </li></ol>
-        <button v-if="view.data.nextCursor" type="button" :disabled="view.loading" @click="reader.view(requestId,true)">继续读取所选输入</button>
         </div>
-        </template>
       </section>
+      <button v-if="view?.data?.nextCursor" class="source-more" type="button" :disabled="view.loading" @click="reader.view(requestId,true)">继续读取所选输入</button>
+      </div>
       <div class="source-support">
         <section v-if="relationId&&view?.data" :id="`source-relations-${requestId}`" ref="relationTarget" class="source-panel source-relations" tabindex="-1" aria-label="来源关系详情" :aria-busy="relation?.loading??false">
           <div class="source-controls source-panel-heading"><h5>来源关系</h5><button type="button" @click="back">返回原阅读位置</button></div>
@@ -152,15 +159,17 @@ async function refresh(){await props.reader.index(props.requestId);await props.r
 .source-detail p { margin: 4px 0; }
 .source-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-block: 8px; }
 .source-controls h4, .source-controls h5 { margin: 0; }
+.source-controls h5 { font: inherit; font-weight: bold; }
 .source-controls h4 { font-size: 14px; }
 .source-controls label { font-size: 12px; }
 .source-controls select { flex: 1 1 240px; min-width: 0; max-width: 100%; }
 .source-detail button, .source-detail select { font: inherit; padding: 4px 8px; }
 .source-columns { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
-.source-support { display: grid; min-width: 0; gap: 10px; }
+.source-input, .source-support { display: grid; min-width: 0; gap: 12px; }
 .source-panel { min-width: 0; margin: 0; padding: 8px 10px; border: 1px solid #808080; background: #fff; }
-.source-panel-heading { margin: 0 0 6px; padding-bottom: 6px; border-bottom: 1px solid #c4c4c4; font-size: 13px; font-weight: bold; text-wrap: balance; }
-details.source-panel:not([open]) > summary { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+.source-panel-heading { margin: -8px -10px 8px; padding: 6px 10px; border-bottom: 1px solid #aaa; background: #ececec; font-size: 13px; font-weight: bold; text-wrap: balance; }
+details.source-panel:not([open]) > summary { margin-bottom: -8px; border-bottom: 0; }
+.source-more { justify-self: start; }
 .source-scroll { max-block-size: min(42dvh, 26rem); overflow: auto; padding: 2px 4px; scrollbar-gutter: stable; }
 .source-input-scroll, .source-relations .source-scroll { max-block-size: min(68dvh, 42rem); }
 .source-items { list-style: none; padding: 0; margin: 0; }

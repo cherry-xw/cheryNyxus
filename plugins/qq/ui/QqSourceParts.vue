@@ -4,7 +4,7 @@ import type { SourceFileProvision } from '../../../packages/protocol/src/sourceC
 import type { useQqSources } from './useQqSources'
 import SourceBody from './SourceBody.vue'
 const props=defineProps<{requestId:string;parts:SourceVisiblePart[];reader:ReturnType<typeof useQqSources>;
-  selection?:Extract<SourceContextItem,{type:'message'}>['partSelection'];files?:SourceFileProvision[];recordId?:string}>()
+  selection?:Extract<SourceContextItem,{type:'message'}>['partSelection'];files?:SourceFileProvision[];recordId?:string;navigationId?:string}>()
 defineEmits<{relation:[id:string,event:Event]}>()
 function selected(partId:string){return props.selection?.find(part=>part.partId===partId)}
 function file(partId:string){
@@ -25,7 +25,7 @@ const representation=(value?:string)=>({native:'本次请求附带文件（不�
     </template>
     <p v-else-if="part.type==='mention'">@{{ part.target==='all'?'全体成员':part.target }}</p>
     <p v-else-if="part.type==='reply'">引用消息：{{ part.result==='selected'?'已纳入所选输入':part.result==='source_only'?'未纳入所选输入':'引用来源不可用或未保留' }}
-      <button type="button" @click="$emit('relation',part.relationId,$event)">查看引用来源</button></p>
+      <button :id="navigationId?`${navigationId}:${part.partId}`:undefined" type="button" @click="$emit('relation',part.relationId,$event)">查看引用来源</button></p>
     <template v-else-if="part.type==='attachment'">
       <p>附件：{{ part.originalName || part.mediaKind }} · {{ part.acquisitionState }} · {{ representation(file(part.partId)?.representation) }}</p>
       <details><summary>附件来源与提供方式</summary>

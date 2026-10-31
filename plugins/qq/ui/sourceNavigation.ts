@@ -11,6 +11,11 @@ export const sourceGapHeading = (reason: Gap['reason']) => ({
 export const hasRangeSources = (item: Gap) => item.reason === 'omitted_from_context' && (item.knownMessageCount ?? 0) > 0
 
 type ReadingTarget = Pick<HTMLElement, 'isConnected' | 'focus' | 'scrollIntoView'>
+export function sourceReturnTarget<T extends Pick<HTMLElement, 'id' | 'isConnected'>>(original: T | undefined, byId: (id: string) => T | null) {
+  if (original?.isConnected) return original
+  return original?.id ? byId(original.id) ?? undefined : undefined
+}
+
 export async function revealSourceTarget(target: () => ReadingTarget | null | undefined, isCurrent: () => boolean) {
   await nextTick()
   const element = target()

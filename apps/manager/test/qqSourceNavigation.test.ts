@@ -1,6 +1,6 @@
 import { nextTick } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
-import { hasRangeSources, revealSourceTarget, sourceGapHeading } from '../../../plugins/qq/ui/sourceNavigation'
+import { hasRangeSources, revealSourceTarget, sourceGapHeading, sourceReturnTarget } from '../../../plugins/qq/ui/sourceNavigation'
 
 const target = () => ({ isConnected: true, focus: vi.fn(), scrollIntoView: vi.fn() })
 
@@ -68,5 +68,34 @@ describe('QQ source reading navigation without a browser', () => {
     await revealSourceTarget(() => origin, () => true)
     expect(origin.focus).toHaveBeenCalledOnce()
     expect(selection).toEqual(before)
+  })
+
+  it('uses the still-connected original trigger without looking for another element', () => {
+    const origin = { ...target(), id: 'source-trigger-request:item:part' }, lookup = vi.fn()
+    expect(sourceReturnTarget(origin, lookup)).toBe(origin)
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it('finds the same stable trigger after a module regroup replaces its element', async () => {
+    const id = 'source-trigger-request:item:part', origin = { ...target(), id, isConnected: false }
+    const replacement = { ...target(), id }
+    let mounted: typeof replacement | null = null
+    const lookup = vi.fn(() => mounted)
+    const reading = revealSourceTarget(() => sourceReturnTarget(origin, lookup), () => true)
+    mounted = replacement
+    await reading
+    expect(lookup).toHaveBeenCalledWith(id)
+    expect(replacement.focus).toHaveBeenCalledOnce()
+    expect(replacement.scrollIntoView).toHaveBeenCalledOnce()
+    expect(origin.focus).not.toHaveBeenCalled()
+  })
+
+  it('does not guess another trigger when the original item no longer exists or has no stable ID', () => {
+    const lookup = vi.fn(() => null)
+    expect(sourceReturnTarget({ id: 'gone', isConnected: false }, lookup)).toBeUndefined()
+    expect(lookup).toHaveBeenCalledExactlyOnceWith('gone')
+    expect(sourceReturnTarget({ id: '', isConnected: false }, lookup)).toBeUndefined()
+    expect(sourceReturnTarget(undefined, lookup)).toBeUndefined()
+    expect(lookup).toHaveBeenCalledOnce()
   })
 })
