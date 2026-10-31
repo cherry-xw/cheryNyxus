@@ -13,6 +13,7 @@ function fixture() {
   const dataDir=path.join(root,'qq'),dbDir=path.join(root,'db'),assetsDir=path.join(root,'assets'),backupDir=path.join(root,'backups')
   for(const dir of [dataDir,dbDir,assetsDir,backupDir])fs.mkdirSync(dir)
   const database=path.join(dbDir,'soul.db'),db=new Database(database)
+  db.pragma('journal_mode = WAL')
   db.exec('CREATE TABLE preserved(value TEXT);INSERT INTO preserved VALUES (\'keep\')');db.close()
   const stateFile=path.join(dataDir,'state.json')
   fs.writeFileSync(stateFile,JSON.stringify({...emptyState(),schemaVersion:1}))

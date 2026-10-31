@@ -278,7 +278,13 @@ function normalizeLegacyInput(rawInput: Record<string, unknown>, conversationId:
 export function migrateLegacyQQSources(options: MigrateLegacyQQSourcesOptions): LegacySourceMigrationReport {
   if ((options.mode ?? 'dry-run') === 'apply') return migrateLegacyQQSourcesInDatabase(options)
   // Even table initialization belongs to the private preview copy, not the supplied database.
-  const preview = new Database(options.db.serialize())
+  // SQLite refuses to open a serialized buffer whose header still marks WAL mode (bytes 18..19 = 2).
+  const serialized = Buffer.from(options.db.serialize())
+  if (serialized.length >= 20 && serialized.subarray(0, 16).toString('utf8') === 'SQLite format 3\u0000') {
+    if (serialized[18] === 2) serialized[18] = 1
+    if (serialized[19] === 2) serialized[19] = 1
+  }
+  const preview = new Database(serialized)
   try { return migrateLegacyQQSourcesInDatabase({ ...options, db: preview }) }
   finally { preview.close() }
 }
