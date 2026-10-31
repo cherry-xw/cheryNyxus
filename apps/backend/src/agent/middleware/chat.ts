@@ -470,6 +470,7 @@ async function* handleRequestLocal(
         )
       }
       callCompleted = true
+      if (sourceStep) ctx.requestSourceStepStarted = true
     } catch (error) {
       if (options.signal?.aborted) throw error
       const status =

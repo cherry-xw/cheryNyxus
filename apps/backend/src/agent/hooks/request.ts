@@ -34,6 +34,7 @@ export function requestSignal(ctx: MiddlewareContext): AbortSignal | undefined {
 export async function prepareRequest(ctx: MiddlewareContext, input: UserInputEntry): Promise<void> {
   input.requestExecution?.validate()
   ctx.requestExecution = input.requestExecution
+  ctx.requestSourceStepStarted = false
   ctx.refreshRequestRuntime?.()
   requestSignal(ctx)?.throwIfAborted()
   const runtime = ctx.runtime!

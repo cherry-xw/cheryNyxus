@@ -226,6 +226,7 @@ export type AgentMessagePatch =
  */
 export interface MiddlewareContext {
   requestToolPhase?: string[]
+  requestSourceStepStarted?: boolean
   /** Finish this request normally after recording its tool result. */
   requestComplete?: boolean
   requestExecution?: {
