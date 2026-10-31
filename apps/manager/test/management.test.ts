@@ -98,7 +98,7 @@ beforeAll(async () => {
     configFile,
     yaml.dump({
       global: { thinking: false, stream: false, supervision: 'auto', textEditor: 'unchanged' },
-      llm: { brain: { base: { provider: 'openai', model: 'synthetic-not-called' } } },
+      llm: { brain: { base: { provider: 'openai', model: 'synthetic-not-called', key: 'synthetic-base-key', contextLimit: 128000 } } },
       sense_groups: {},
       roles: {},
       presets: {},
@@ -325,6 +325,7 @@ describe('mounted Manager Session → capability HTTP → real authenticated cor
     const brain = await save('brains', 'synthetic-brain', {
       provider: 'openai',
       model: 'never-called',
+      contextLimit: 128000,
       thinking: 'high',
       key: 'synthetic-model-key',
     })

@@ -27,7 +27,7 @@ describe('Manager capabilities workflow', () => {
   it('keeps stale draft revisions on catalog refresh and stops writes after conflicts', async () => {
     let revision = 'r1'
     const { ui, request, scope } = setup(path => { if (path.endsWith('/catalog')) return { data: { ...catalog, baseRevision: revision } }; throw new Error('配置版本已变化，请重新读取同名资源后再保存。') })
-    await ui.loadCatalog(); ui.editors.brains.name = 'new'; ui.editors.brains.value.model = 'synthetic'; ui.editors.brains.key = 'synthetic-secret'
+    await ui.loadCatalog(); ui.editors.brains.name = 'new'; ui.editors.brains.value.provider = 'openai'; ui.editors.brains.value.model = 'synthetic'; ui.editors.brains.value.contextLimit = 128000; ui.editors.brains.key = 'synthetic-secret'
     revision = 'r2'; await ui.loadCatalog()
     expect(ui.editors.brains.revision).toBe('r1')
     await ui.saveResource('brains')
