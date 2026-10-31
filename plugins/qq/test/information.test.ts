@@ -1,14 +1,34 @@
 import { describe, expect, it, vi } from 'vitest'
-import { informationSchema, informationTool } from '../src/information.js'
+import { informationSchema, informationTool, sourceTextTool } from '../src/information.js'
 import { queryInformation } from '../../../platform/napcat-plugin/src/information.js'
 import { prepareQuery } from '../skills/qq-information/scripts/query.mjs'
 
 describe('QQ read-only information', () => {
   const subject = {userId:'123',conversationType:'private'}
   it('defaults to bounded samples and refuses arbitrary actions or targets', () => {
-    expect(prepareQuery({kind:'history'},subject)).toMatchObject({count:50,userId:'123'})
-    for (const input of [{kind:'send_msg'},{kind:'history',count:101},{kind:'profile',userId:'456'},{kind:'files'}]) expect(()=>prepareQuery(input,subject)).toThrow()
+    expect(prepareQuery({kind:'history'},subject)).toEqual({kind:'history',count:50,historySource:'retained'})
+    for (const input of [{kind:'send_msg'},{kind:'history',count:101},{kind:'profile',userId:'456'},{kind:'files'},
+      {kind:'history',historySource:'platform'},{kind:'history',userId:'123'}, {kind:'profile',cursor:'page'}]) expect(()=>prepareQuery(input,subject)).toThrow()
     expect(()=>informationSchema.parse({kind:'history',action:'send_msg'})).toThrow()
+  })
+  it('keeps local cursors out of the explicit platform route', () => {
+    const group = {...subject, conversationType:'group'}
+    expect(prepareQuery({kind:'history',cursor:'page'},group)).toEqual({kind:'history',count:50,historySource:'retained',cursor:'page'})
+    expect(prepareQuery({kind:'history',historySource:'platform'},group)).toEqual({kind:'history',count:50,historySource:'platform'})
+    expect(()=>prepareQuery({kind:'history',historySource:'platform',cursor:'page'},group)).toThrow()
+    for (const input of [{kind:'history',userId:'456'}, {kind:'history',historySource:'platform',cursor:'page'}, {kind:'profile',historySource:'retained'}])
+      expect(informationSchema.safeParse(input).success).toBe(false)
+  })
+  it('binds text continuation to the current trusted run and checks cancellation', async () => {
+    const run = vi.fn(async () => ({text:'正文'})), tool = sourceTextTool(run).sense.executor
+    await expect(tool.execute({textRefId:'text'},{} as any,{} as any)).rejects.toThrow('Trusted')
+    const controller = new AbortController()
+    const ctx = {requestView:{requestId:'r',identity:{source:'plugin',channel:'qq',subject}},signal:controller.signal} as any
+    await expect(tool.execute({textRefId:'text',cursor:'page'},{} as any,ctx)).resolves.toMatchObject({status:'ok'})
+    expect(run).toHaveBeenCalledWith('r',{textRefId:'text',cursor:'page'})
+    controller.abort()
+    await expect(tool.execute({textRefId:'text'},{} as any,ctx)).rejects.toThrow()
+    expect(run).toHaveBeenCalledTimes(1)
   })
   it('requires a trusted QQ execution identity',async()=>{
     const run=vi.fn(async()=>({messages:[]})), tool=informationTool(run).sense.executor

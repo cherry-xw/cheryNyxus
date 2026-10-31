@@ -8,7 +8,10 @@ trigger: 用户询问群里最近在聊什么、哪些人活跃、成员资料�
 
 使用 `qq_information`，不要直接访问 NapCat WebUI、Token 或任意 API。该工具由当前 QQ 请求身份限定目标；不允许管理、修改或跨私聊查询。脚本 query.mjs 随插件打包，由工具执行参数校验；脚本不是持有凭据的独立网络客户端。
 
-- history：默认最近50条，最多100条。群聊读近期消息；私聊优先本地会话历史。根据有限消息自然概括话题和最近谁说得多，不作全量排名，不宣称完整覆盖。
+- history：默认 `historySource:'retained'`，读取当前获准来源范围内已保存的消息，不是 QQ 客户端全部历史。默认最近50条，最多100条；按 `nextCursor` 读更早页，页内为时间近似顺序。翻页保持相同 count。换预设、重置或权限变化后旧游标不可用，不自动改查另一范围。
+- 只有明确需要平台近期记录时用 `historySource:'platform'`，仅群聊支持，不接受本地游标；私聊平台查询明确不支持，不偷偷回退。平台结果不会自动保存到本地来源或触发历史任务。
+- 本地记录的文字使用 `body.preview`；`complete:false` 时，以实际 `textRefId` 和 `nextCursor` 调用 `qq_source_text_read` 继续读，返回末段为 `nextCursor:null`。位置按 Unicode 字符，不是行号。正文引用仅当前运行可用。附件只列元信息，不表示已经读取；没有实际工具时不能许诺可读全文。
+- 根据有限消息自然概括话题和最近谁说得多，不作全量排名，不宣称完整覆盖。`historySource/cursor` 只用于 history，history 不接受 userId 或文件等其他目标参数。
 - profile：查询 userId 的昵称及国家、省、市；群聊对象必须是当前群成员，私聊只能本人。地区为空就略过，不猜位置、不解码故乡。
 - group / members / member：当前群基本信息、成员列表、指定成员资料。
 - notices / essence / honor：当前群公告、精华与荣誉。

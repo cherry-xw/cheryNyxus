@@ -280,11 +280,15 @@ export class QQPlugin implements IngressPlugin {
       const subject = { selfId: job.input.selfId, userId: job.input.senderId, conversationType: job.input.conversationType }
       const { stdout } = await runFile(process.execPath, [this.context.resources.resolve('qq-information-script'), JSON.stringify(input), JSON.stringify(subject)], {maxBuffer:8192})
       const query = JSON.parse(stdout)
-      if (query.kind === 'history' && subject.conversationType === 'private') {
-        if (!this.context.core.recentConversationMessages) throw new Error('Local history unavailable')
-        const raw = await this.context.core.recentConversationMessages(job.conversationKey, query.count)
-        return {source:'local',messages:JSON.parse(raw),limited:true,perMessageCharacters:400}
+      if (query.kind === 'history' && query.historySource === 'retained') {
+        if (!job.sourceScopeId) fail('IDENTITY_REJECTED', '当前任务没有来源范围')
+        const identity = this.handles.get(job.requestId) ?? await this.bindIdentity(job)
+        return this.context.core.sourceConversations!.history({ entryId: 'qq', identity, scopeId: job.sourceScopeId,
+          runId: id, count: query.count, cursor: query.cursor })
       }
+      if (query.kind === 'history' && subject.conversationType !== 'group') fail('NOT_SUPPORTED', '私聊不支持平台历史查询')
+      delete query.historySource
+      delete query.cursor
       if (!this.connection || !this.recovered) throw new Error('Transport unavailable')
       const lookupId = randomUUID()
       return new Promise((resolve,reject) => {
@@ -292,6 +296,12 @@ export class QQPlugin implements IngressPlugin {
         const sent=this.context.connections.send(this.connection!,{kind:'notification',type:'qq.information.request',data:{eventId:lookupId,lookupId,requestId:job.requestId,selfId:job.input.selfId,conversationType:job.input.conversationType,targetId:job.input.targetId,seq:1,information:query}})
         if (!sent) {this.informationPending.delete(lookupId);reject(new Error('Disconnected'))}
       })
+    })))
+    this.cleanups.push(this.context.tools.register(sourceTextTool(async (id, input) => {
+      const job = this.state.jobs.find(job => job.coreRequestId === id && job.state === 'running')
+      if (!job?.sourceScopeId || (job.decisionRequired && job.participation !== 'reply')) fail('IDENTITY_REJECTED', '文字读取需要活动QQ请求')
+      const identity = this.handles.get(job.requestId) ?? await this.bindIdentity(job)
+      return this.context.core.sourceConversations!.readText({ entryId: 'qq', identity, scopeId: job.sourceScopeId, runId: id, ...input })
     })))
     this.cleanups.push(this.context.tools.register(videoResendTool((id,messageId)=>this.resendVideo(id,messageId))))
     for (const tool of createReplyTools({
@@ -427,6 +437,15 @@ export class QQPlugin implements IngressPlugin {
     this.snapshot = this.context.config.snapshot<QQConfig>()
     this.register(true)
     const routes: Parameters<IngressContext['management']['register']>[0]['routes'] = []
+    for (const method of Object.keys(QQSourceRequestSchemas) as Array<keyof typeof QQSourceRequestSchemas>) {
+      const routePath = method === 'qq.context.get' ? 'context' : method.slice(3).replaceAll('.', '/')
+      routes.push({ method: 'GET', path: routePath, rpcMethod: method,
+        requestSchema: z.object({pathParams:z.object({}).strict(),query:QQSourceRequestSchemas[method]}).strict(),
+        responseSchema: QQSourceResponseSchemas[method], handler: async input => this.readSourceDetail({method,params:input.query} as SourceManagementQuery) })
+      this.context.rpc.register({scope:'management',method,request:QQSourceRequestSchemas[method] as z.ZodType,
+        response:QQSourceResponseSchemas[method] as z.ZodType,authorize:ctx=>ctx.credentialKind==='control',
+        handler:async (_ctx,params)=>this.readSourceDetail({method,params} as SourceManagementQuery)})
+    }
     for (const [name, rpcMethod] of [['config', 'qq.config.get'], ['status', 'qq.status.get'],
       ['queue', 'qq.queue.get'], ['history', 'qq.history.get']] as const) {
       const handler = async () => name === 'config' ? this.configView() : name === 'status' ? this.status() :
@@ -808,10 +827,46 @@ export class QQPlugin implements IngressPlugin {
       .filter((j) => terminal(j) === history)
       .map((j) => recordEntry(j, outputs.get(j.requestId) || []))
   }
-  private entryDetail(requestId: string) {
+  private async entryDetail(requestId: string) {
     const job = this.state.jobs.find(item => item.requestId === requestId)
     if (!job) fail('INVALID_PARAMS', '记录不存在或已超出保留范围')
-    return recordDetail(job, this.state.outbox)
+    const legacy=recordDetail(job,this.state.outbox)
+    if(!job.sourceScopeId)return {...legacy,contextAvailability:job.programSource?'not_applicable' as const:'legacy_unrecorded' as const}
+    const index=QQSourceResponseSchemas['qq.context.index'].parse(await this.readSourceDetail({method:'qq.context.index',params:{requestId}}))
+    if(index.availability==='legacy_unrecorded'||index.reasonCode==='SOURCE_NOT_RECORDED')return {...legacy,contextAvailability:index.availability}
+    const [messages,deliveries]=await Promise.all([
+      this.readSourceDetail({method:'qq.entry.items',params:{requestId,kind:'messages'}}),
+      this.readSourceDetail({method:'qq.entry.items',params:{requestId,kind:'deliveries'}}),
+    ])
+    const sourceContext:{observedAt:number;messages?:z.infer<typeof QQSourceResponseSchemas['qq.entry.items']>;deliveries?:z.infer<typeof QQSourceResponseSchemas['qq.entry.items']>;
+      replyBody?:z.infer<typeof QQSourceResponseSchemas['qq.context.index']>['generatedReply'];itemsDeferred:boolean}={observedAt:index.observedAt,
+      messages:QQSourceResponseSchemas['qq.entry.items'].parse(messages),deliveries:QQSourceResponseSchemas['qq.entry.items'].parse(deliveries),replyBody:index.generatedReply,itemsDeferred:false}
+    const detail={...legacy,messages:[],reply:'',replyTruncated:job.reply.length>0,deliveries:[],deliveriesTruncated:legacy.deliveries.length>0,
+      contextAvailability:index.availability,sourceContext}
+    if(Buffer.byteLength(JSON.stringify(detail))>256*1024){delete sourceContext.messages;delete sourceContext.deliveries;sourceContext.itemsDeferred=true}
+    return detail
+  }
+  private async readSourceDetail(query: SourceManagementQuery) {
+    if (!this.context.management.readSource) fail('NOT_SUPPORTED', '来源管理接口不可用')
+    try {
+      const job=this.state.jobs.find(job=>job.requestId===query.params.requestId)
+      const result=await this.context.management.readSource(query,query.method==='qq.context.index'?job?.reply:undefined)
+      if(query.method==='qq.context.index'&&job?.programSource)return {...result,availability:'not_applicable'}
+      return result
+    }
+    catch (error) {
+      const code = (error as {code?:string}).code
+      if (code === 'NOT_FOUND' && query.method === 'qq.context.index') {
+        const job=this.state.jobs.find(job=>job.requestId===query.params.requestId)
+        if (job) return {requestId:job.requestId,observedAt:Date.now(),availability:job.programSource || job.douyinUrl && !job.coreRequestId
+          ? 'not_applicable' : !job.sourceScopeId ? 'legacy_unrecorded' : job.state==='failed' && !job.coreRequestId ? 'preparation_failed' : 'not_prepared',
+          items:[],associatedSummaryIds:[],nextCursor:null,reasonCode:'SOURCE_NOT_RECORDED'}
+      }
+      const status = code && ({INVALID_PARAMS:400,PERMISSION_DENIED:403,IDENTITY_REJECTED:403,CAPABILITY_DENIED:403,NOT_FOUND:404,
+        SOURCE_CONFLICT:409,REVISION_CONFLICT:409,SUMMARY_CONFLICT:409,CURSOR_EXPIRED:409,RESPONSE_TOO_LARGE:413} as Record<string,number>)[code]
+      if (code && status) throw Object.assign(new Error('来源详情读取未完成'), {code:code.toLowerCase(),status})
+      throw error
+    }
   }
   private status(): QQStatus {
     const snapshot = this.context.config.snapshot<QQConfig>()

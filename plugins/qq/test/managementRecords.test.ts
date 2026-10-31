@@ -9,7 +9,7 @@ import { QQPlugin } from '../src/index.js'
 import { deliverySummary, recordPage, taskLabel } from '../ui/qqPresentation.js'
 
 function fixture() {
-  const input = { eventId: 'qq:123:group:456:1', selfId: '123', targetId: '456', senderId: '789', senderName: '测试发送者', conversationType: 'group' as const, messageId: '1', content: '帮我整理今天的消息', mentionedBot: true, occurredAt: 1, attachments: [{ type: 'file', name: '资料.txt', url: 'https://example.com/private?signature=secret-attachment' }] }
+  const input = { eventId: 'qq:123:group:456:1', selfId: '123', targetId: '456', senderId: '789', senderName: '测试发送者', conversationType: 'group' as const, messageId: '1', content: '帮我整理今天的消息', mentionedBot: true, occurredAt: 1, sourceParts: [{ type: 'text' as const, partId: 'p0', text: '帮我整理今天的消息' }, { type: 'attachment' as const, partId: 'p1', attachmentId: 'att-1' }], attachments: [{ partId: 'p1', type: 'file', name: '资料.txt', url: 'https://example.com/private?signature=secret-attachment' }] }
   const job = JobSchema.parse({ requestId: 'request-1', input, target: 'group:456', conversationKey: 'private-core-key', snapshot: { revision: 2, config: structuredClone(QQDefaultConfig), preset: '测试预设', brain: 'secret-brain', senseGroup: 'private-tools', presetId: 'private-preset-id' }, state: 'completed', acceptedAt: 123000, reply: '已经整理', toolIds: [], waits: 0 })
   const output = (id: string, type: Outbox['frame']['type'], status: Outbox['status']): Outbox => ({ status, confirmedAt: status === 'sent' ? 124000 : undefined, frame: { kind: 'notification', type, data: { eventId: id, requestId: job.requestId, selfId: '123', conversationType: 'group', targetId: '456', seq: 1, text: 'private-delivery-body', mediaFile: 'local-file.mp4' } } })
   const outbox = [output('video', 'qq.reply.video', 'unknown'), output('notice', 'qq.request.failed', 'sent'), output('ack', 'qq.message.ack', 'sent'), output('lookup', 'qq.lookup.request', 'pending')]
@@ -30,7 +30,7 @@ describe('administrator QQ records', () => {
   })
   it('keeps merged inputs and attachment metadata, with explicit limits and no silent truncation', () => {
     const { job, outbox } = fixture()
-    job.mergedInputs = [job.input, { ...job.input, eventId: 'qq:123:group:456:2', messageId: '2', senderId: '890', senderName: '另一位发送者', content: '长'.repeat(21000) }]
+    job.mergedInputs = [job.input, { ...job.input, eventId: 'qq:123:group:456:2', messageId: '2', senderId: '890', senderName: '另一位发送者', content: '长'.repeat(21000), sourceParts: [{ type: 'text', partId: 'p0', text: '长'.repeat(21000) }], attachments: [] }]
     job.reply = '答'.repeat(100001)
     const value = QQEntryDetailSchema.parse(recordDetail(job, outbox))
     expect(value.messageCount).toBe(2)
@@ -88,5 +88,111 @@ describe('administrator QQ records', () => {
     expect(recordPage(entries.slice(0, 3), 3)).toMatchObject({ page: 1, pages: 1, total: 3 })
     expect(recordPage([], 9)).toMatchObject({ page: 1, pages: 1, total: 0, entries: [] })
     expect(entries[0].requestId).toBe('r-0')
+  })
+  it('degrades qq.entry.get sourceContext items to itemsDeferred when response exceeds 256 KiB', async () => {
+    const { job } = fixture()
+    job.sourceScopeId = 'scope-large'
+    const root = fs.mkdtempSync(path.join(process.env.CHERY_TEST_RUN_DIR || os.tmpdir(), 'qq-records-large-'))
+    roots.push(root)
+    const rpc: any[] = [], management: any[] = []
+    const largePreview = '长'.repeat(1024)
+    const makeItems = (kind: 'messages' | 'deliveries') => ({
+      requestId: job.requestId,
+      observedAt: 123000,
+      kind,
+      total: 120,
+      nextCursor: null,
+      items: Array.from({ length: 120 }, (_, i) =>
+        kind === 'messages'
+          ? {
+              itemId: `msg-${i}`,
+              type: 'message' as const,
+              source: { recordId: `rec-${i}`, revision: 1 },
+              origin: 'member' as const,
+              sender: { id: '789', name: '测试发送者' },
+              platformMessageIds: [`${i + 1}`],
+              time: {
+                at: 123000,
+                basis: 'received' as const,
+              },
+              parts: [
+                {
+                  partId: 'p0',
+                  type: 'text' as const,
+                  body: {
+                    state: 'available' as const,
+                    text: {
+                      textRefId: `ref-${i}`,
+                      revision: 1,
+                      preview: largePreview,
+                      previewCodePoints: 1024,
+                      totalCodePoints: 2048,
+                      complete: false,
+                      nextCursor: 'cursor-1',
+                    },
+                  },
+                },
+              ],
+            }
+          : {
+              itemId: `del-${i}`,
+              type: 'delivery' as const,
+              purpose: 'reply',
+              sequence: i + 1,
+              status: 'sent' as const,
+              confirmedAt: 124000,
+              messageIds: [`${i + 1000}`],
+              fileIds: [],
+              body: {
+                state: 'available' as const,
+                text: {
+                  textRefId: `dref-${i}`,
+                  revision: 1,
+                  preview: largePreview,
+                  previewCodePoints: 1024,
+                  totalCodePoints: 1024,
+                  complete: true,
+                  nextCursor: null,
+                },
+              },
+            },
+      ),
+    })
+    const context: any = {
+      id: 'cherynyxus-qq-module',
+      version: 'test',
+      dataDir: root,
+      runtimeOptions: {},
+      config: { snapshot: () => ({ revision: 2, config: QQDefaultConfig }) },
+      rpc: { register: vi.fn((input) => { rpc.push(input); return () => {} }) },
+      management: {
+        register: vi.fn((input) => management.push(input)),
+        readSource: vi.fn(async (query: any) => {
+          if (query.method === 'qq.context.index') {
+            return {
+              requestId: job.requestId,
+              observedAt: 123000,
+              availability: 'available',
+              items: [],
+              associatedSummaryIds: [],
+              nextCursor: null,
+            }
+          }
+          if (query.method === 'qq.entry.items') {
+            return makeItems(query.params.kind)
+          }
+          throw new Error('Unexpected method')
+        }),
+      },
+    }
+    const plugin = new QQPlugin(context)
+    ;(plugin as any).state.jobs = [job]
+    plugin.prepareManagement()
+    const method = rpc.find((item) => item.method === 'qq.entry.get')
+    const detail = await method.handler({ connectionId: 'admin' }, { requestId: job.requestId })
+    expect(Buffer.byteLength(JSON.stringify(detail))).toBeLessThanOrEqual(256 * 1024)
+    expect(detail.sourceContext?.itemsDeferred).toBe(true)
+    expect(detail.sourceContext?.messages).toBeUndefined()
+    expect(detail.sourceContext?.deliveries).toBeUndefined()
   })
 })

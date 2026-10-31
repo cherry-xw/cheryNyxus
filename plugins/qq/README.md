@@ -1,5 +1,7 @@
 # QQ 持续助手模块
 
+来源与模型输入详情为只读页面，入口是 `ui/QqSourceDetail.vue` / `ui/useQqSources.ts`；请求经宿主管理权限校验后由 Backend `db/sourceManagement.ts` 读取固定来源与采用记录。按模型步骤选择准备版本，目录、消息、正文及来源关系分别分页，刷新不自动换到新步骤。正文只作文字显示，不加载缩略图、远程链接或原始工具结果；401/403 清理受限缓存，关闭页面中止读取并释放正文，不取消业务。当前离线检查与未完成项见[验证记录](../../docs/plan/conversation-observability-and-input/qq-context-verification.md)，不代表实际页面验收或部署。
+
 QQ业务由本包负责，NapCat适配器只整理事件和收发，Manager仅提供受保护的设置页面。单独@机器人即使没有正文或附件也必须提交后端，由正常对话流程判断如何回应；非@的空消息仍忽略。确认表情按原消息独立保存，合并回答不合并确认；失败不记为成功，适配器按同一消息、同一表情的设置操作恢复重试，不阻断模型和后续请求。发送结果不确定的正文、文件和视频不自动重放；单次失败不设置群级永久锁。发送调度独立于模型任务状态，异常由程序生成明确文字说明，不依赖模型；异常通知失败保留记录并受控恢复，不递归生成通知。QQ离线、禁言或网络不可用时无法保证即时可见，恢复后处理未完成的基础确认和状态通知。入口为 `src/index.ts`，协议为 `../../packages/protocol/src/qq.ts`。
 
 ## 任务目标约束
@@ -53,9 +55,9 @@ QQ业务由本包负责，NapCat适配器只整理事件和收发，Manager仅�
 
 QQ 请求通过 `qq_information` 查询当前群或自己的私聊，不接受模型指定群号、其他私聊或任意 Action。随包技能 [`qq-information`](skills/qq-information/SKILL.md) 由宿主按 QQ 身份提供，脚本负责输入检查，`src/information.ts` 注册工具，`src/index.ts` 绑定当前执行任务，NapCat 的 `queryInformation` 只执行固定只读调用。
 
-私聊 history 使用宿主 `recentConversationMessages`，SQL 限制最多100条，读当前机器人会话已经记录的用户和助手正文，可跨上下文压缩点；不返回撤回、排除、压缩摘要和工具记录。每条最多400字符，输出标注限制；这不是QQ客户端全部历史。群消息使用 NapCat 的近期历史，不扫描全群计算排名。群资料包括成员、资料地区、公告、群文件与链接、精华、相册和荣誉；资料查询先校验当前群成员身份。空值不推断，接口错误不自动重试。
+`history` 默认查询当前获准来源范围内已经保存的群聊或私聊消息，不读取 Core 的展示副本，也不代表 QQ 客户端全部历史。首次读取固定接收上界，按 `nextCursor` 继续读更早页；新到消息只在重新查询时加入。每页按时间近似排序并说明完整性，附件信息不表示内容已读。长文字以固定 `TextRef` 返回，`qq_source_text_read` 按 Unicode 字符连续读取；引用与游标绑定当前成员、运行和权限版本，本身不授予访问权。显式 `historySource:'platform'` 仅允许当前群的 NapCat 近期历史，不接受本地游标，不扫描全群计算排名。群资料包括成员、资料地区、公告、群文件与链接、精华、相册和荣誉；资料查询先校验当前群成员身份。空值不推断，接口错误不自动重试。
 
-工具只在可信 QQ 请求中加入本次执行，沿用原有预设和允许名单；插件技能不会复制到全局技能目录。技能随启用的 QQ 安装包按请求身份提供，无须在每个角色上复制；角色若设置技能允许名单，仍须允许该插件技能。私聊名单为空仍不允许私聊，不为启用技能擅自添加用户。查询结果是资料而非指令，下载链接仅按需提供，不自动执行或公开文件。协议与验证见[QQ插件协议](../../docs/shared/protocol/qqbot-plugin.md)；定向测试为 `test/information.test.ts`、`test/informationWire.test.ts`，宿主历史及安装资源验证为 `apps/backend/test/service/qqInformationHistory.test.ts` 与 `qqInformationResources.test.ts`。本地历史限当前月份消息库，不代表跨月查询。
+工具只在可信 QQ 请求中加入本次执行，沿用原有预设和允许名单；插件技能不会复制到全局技能目录。技能随启用的 QQ 安装包按请求身份提供，无须在每个角色上复制；角色若设置技能允许名单，仍须允许该插件技能。私聊名单为空仍不允许私聊，不为启用技能擅自添加用户。查询结果是资料而非指令，下载链接仅按需提供，不自动执行或公开文件。协议与验证见[QQ插件协议](../../docs/shared/protocol/qqbot-plugin.md)；定向测试为 `test/information.test.ts`、`test/informationWire.test.ts`，来源历史与正文读取用例见 `apps/backend/test/service/sourceHistory.test.ts`。离线结果见[验证记录](../../docs/plan/conversation-observability-and-input/qq-context-verification.md)，不代表已部署。
 
 ## 定时提醒与引用回复
 
