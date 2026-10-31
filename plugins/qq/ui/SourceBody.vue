@@ -15,4 +15,4 @@ const loaded=computed(()=>props.reader.body(props.requestId,props.body))
   </template>
   <p v-else>{{ body.state==='unavailable' && body.reason==='permission_denied'?'无权读取正文。':'未记录可公开的正文。' }}</p>
 </template>
-<style scoped>pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;margin:8px 0}p{overflow-wrap:anywhere}</style>
+<style scoped>pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;margin:4px 0}p{overflow-wrap:anywhere;margin:4px 0}</style>

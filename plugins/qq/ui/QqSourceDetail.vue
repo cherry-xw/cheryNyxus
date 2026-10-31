@@ -41,24 +41,13 @@ async function back(){const target=returnTo.value;resetRelation();const version=
 async function refresh(){await props.reader.index(props.requestId);await props.reader.view(props.requestId,false,true)}
 </script>
 <template>
-  <section aria-label="来源与模型输入详情" :aria-busy="current?.loading">
+  <section class="source-detail" aria-label="来源与模型输入详情" :aria-busy="current?.loading">
     <div class="source-controls"><h4>来源与模型输入</h4><button type="button" :disabled="current?.loading" @click="refresh">刷新这份详情</button></div>
     <p v-if="current?.error" role="alert">{{ current.error }} <button type="button" @click="reader.index(requestId)">重试读取</button></p>
     <p v-if="!current?.index" role="status">{{ current?.loading?'正在读取目录…':'尚未读取来源。' }}</p>
     <template v-else>
-      <p>截至 {{ time(current.index.observedAt) }}（北京时间）。只读查看不会调用模型、解压或重发消息。</p>
+      <p class="source-meta">截至 {{ time(current.index.observedAt) }}（北京时间）。只读查看不会调用模型、解压或重发消息。</p>
       <p v-if="current.index.availability!=='available'">{{ labels[current.index.availability] }}</p>
-      <details v-if="current.index.availability!=='legacy_unrecorded'" @toggle="event=>{if((event.target as HTMLDetailsElement).open&&!current?.entryPages.messages?.data)reader.entry(requestId,'messages')}">
-        <summary>收到的本次原始消息（与模型选择分开）</summary>
-        <p v-if="current.entryPages.messages?.loading" role="status">正在读取收到的消息…</p>
-        <p v-if="current.entryPages.messages?.error" role="alert">{{ current.entryPages.messages.error }} <button type="button" @click="reader.entry(requestId,'messages')">重试读取原始消息</button></p>
-        <p v-if="current.entryPages.messages?.data?.total===0">未记录成员输入；提醒和应用通知不制造成员消息。</p>
-        <article v-for="item in current.entryPages.messages?.data?.items??[]" :key="item.itemId"><template v-if="item.type==='message'">
-          <p>{{ item.sender.name||'未记录昵称' }}（{{ item.sender.id }}） · {{ time(item.time.at) }}（{{ item.time.basis==='platform_sent'?'平台发送时间':item.time.basis==='delivery_confirmed'?'发送确认时间':'接收时间' }}）</p>
-          <QqSourceParts :request-id="requestId" :parts="item.parts" :reader="reader" />
-        </template></article>
-        <button v-if="current.entryPages.messages?.data?.nextCursor" type="button" :disabled="current.entryPages.messages.loading" @click="reader.entry(requestId,'messages',true)">继续读取原始消息</button>
-      </details>
       <p v-if="current.newer">发现更新的输入版本；当前仍显示原选择。<button type="button" @click="reader.latest(requestId)">查看最新版本</button></p>
       <div v-if="entries.length" class="source-controls"><label :for="`source-step-${requestId}`">模型步骤与准备版本</label>
         <select :id="`source-step-${requestId}`" :value="current.selection?.projectionId??''" @change="choose">
@@ -67,19 +56,25 @@ async function refresh(){await props.reader.index(props.requestId);await props.r
         </select>
         <button type="button" v-if="current.index.nextCursor" :disabled="current.loading" @click="reader.index(requestId,true)">继续读取步骤目录</button>
       </div>
-      <p v-if="view?.loading" role="status">正在读取所选版本…</p>
-      <p v-if="view?.error" role="alert">{{ view.error }} <button type="button" @click="reader.restart(requestId)">从这份输入开头重新读取</button></p>
-      <template v-if="view?.data">
-        <p role="status">所选版本：{{ view.data.state==='snapshot_only'?'固定消息选择':attempts[view.data.attemptState??'prepared'] }} · {{ view.data.items.length }} / {{ view.data.total }} 项 · 时间近似排序，同秒先后不保证。</p>
+      <div class="source-columns">
+      <section class="source-panel source-input" aria-label="所选模型输入">
+        <h5 class="source-panel-heading">所选模型输入</h5>
+        <p v-if="view?.loading" role="status">正在读取所选版本…</p>
+        <p v-if="view?.error" role="alert">{{ view.error }} <button type="button" @click="reader.restart(requestId)">从这份输入开头重新读取</button></p>
+        <template v-if="view?.data">
+        <p class="source-meta" role="status">所选版本：{{ view.data.state==='snapshot_only'?'固定消息选择':attempts[view.data.attemptState??'prepared'] }} · {{ view.data.items.length }} / {{ view.data.total }} 项 · 时间近似排序，同秒先后不保证。</p>
         <details v-if="view.data.state==='available'"><summary>模型、预算与本次返回用量</summary>
           <p>{{ view.data.model }} · {{ view.data.protocol }} · 配置版本 {{ view.data.runtimeConfigRevision }}</p>
           <p v-if="view.data.budget">输入估算 {{ view.data.budget.estimatedTextTokens }} token · 计量 {{ view.data.budget.tokenSource }} · 有效上限 {{ view.data.budget.effectiveCeiling??'未测量' }} · 输出预留 {{ view.data.budget.outputReserve??'未记录' }} · 媒体用量未测量。</p><p v-else>未记录本版本预算。</p>
           <p>本次返回用量：输入 {{ view.data.usage?.inputTokens??'未记录' }} · 输出 {{ view.data.usage?.outputTokens??'未记录' }}。不与预检估算混算。</p>
         </details>
+        <div class="source-scroll source-input-scroll" role="region" aria-label="所选模型输入内容" tabindex="0">
         <ol class="source-items"><li v-for="item in view.data.items" :key="item.itemId">
-          <h5 :ref="element=>target(item.itemId,element)" tabindex="-1">{{ item.type==='message'?`${item.sender.name||'未记录昵称'}（${item.sender.id}）`:item.type==='summary'?'历史资料摘要':item.type==='gap'?sourceGapHeading(item.reason):item.type==='data'?'附加资料':item.type==='restricted'?'内容受限':'本次工具过程' }}</h5>
+          <div class="source-item-heading">
+          <h6 :ref="element=>target(item.itemId,element)" tabindex="-1">{{ item.type==='message'?`${item.sender.name||'未记录昵称'}（${item.sender.id}）`:item.type==='summary'?'历史资料摘要':item.type==='gap'?sourceGapHeading(item.reason):item.type==='data'?'附加资料':item.type==='restricted'?'内容受限':'本次工具过程' }}</h6>
+          <p v-if="item.type==='message'" class="source-meta">{{ time(item.time.at) }}（{{ item.time.basis==='platform_sent'?'平台发送时间':item.time.basis==='delivery_confirmed'?'发送确认时间':'接收时间' }}） · {{ item.origin==='member'?'成员消息':'机器人真实发送' }} · {{ item.selectionReasons.map(reason=>({current:'本次输入',recent:'近期背景',explicit_quote:'明确引用'}[reason])).join('、') }}</p>
+          </div>
           <template v-if="item.type==='message'">
-            <p>{{ time(item.time.at) }}（{{ item.time.basis==='platform_sent'?'平台发送时间':item.time.basis==='delivery_confirmed'?'发送确认时间':'接收时间' }}） · {{ item.origin==='member'?'成员消息':'机器人真实发送' }} · {{ item.selectionReasons.map(reason=>({current:'本次输入',recent:'近期背景',explicit_quote:'明确引用'}[reason])).join('、') }}</p>
             <QqSourceParts :request-id="requestId" :parts="item.parts" :selection="item.partSelection" :files="view.data.fileInputs" :record-id="item.source.recordId" :reader="reader" @relation="relationOpen" />
             <details><summary>来源信息</summary><p>{{ item.source.recordId }} / {{ item.source.revision }} · 平台消息 {{ item.platformMessageIds.join('、') }}</p></details>
           </template>
@@ -90,7 +85,13 @@ async function refresh(){await props.reader.index(props.requestId);await props.r
           <p v-else>当前无权读取；不展示来源身份或文件名。</p>
         </li></ol>
         <button v-if="view.data.nextCursor" type="button" :disabled="view.loading" @click="reader.view(requestId,true)">继续读取所选输入</button>
-        <section v-if="relationId" :id="`source-relations-${requestId}`" ref="relationTarget" class="source-relations" tabindex="-1" aria-label="来源关系详情" :aria-busy="relation?.loading??false"><h5>来源关系</h5><button type="button" @click="back">返回原阅读位置</button>
+        </div>
+        </template>
+      </section>
+      <div class="source-support">
+        <section v-if="relationId&&view?.data" :id="`source-relations-${requestId}`" ref="relationTarget" class="source-panel source-relations" tabindex="-1" aria-label="来源关系详情" :aria-busy="relation?.loading??false">
+          <div class="source-controls source-panel-heading"><h5>来源关系</h5><button type="button" @click="back">返回原阅读位置</button></div>
+          <div :key="relationId" class="source-scroll" role="region" aria-label="来源关系内容" tabindex="0">
           <p v-if="relation?.loading" role="status">正在读取来源关系…</p><p v-if="relation?.error" role="alert">{{ relation.error }} <button type="button" @click="reader.sources(requestId,relationId)">重试读取关系</button></p>
           <p v-if="relation?.data&&!relation.data.items.length">没有可读取的来源；不会自动查询远端 QQ。</p>
           <article v-for="item in relation?.data?.items??[]" :key="`${item.source.recordId}:${item.source.revision}`">
@@ -101,17 +102,36 @@ async function refresh(){await props.reader.index(props.requestId);await props.r
           </article>
           <p v-if="navigationError" role="alert">{{ navigationError }}</p>
           <button v-if="relation?.data?.nextCursor" type="button" :disabled="relation.loading" @click="reader.sources(requestId,relationId,true)">继续读取关系来源</button>
+          </div>
         </section>
-      </template>
-      <template v-if="current.index.generatedReply"><h4>生成的回复文字（不等于已发送）</h4><SourceBody :request-id="requestId" :body="current.index.generatedReply" :reader="reader" /></template>
-      <details v-if="current.index.availability!=='legacy_unrecorded'" @toggle="event=>{if((event.target as HTMLDetailsElement).open&&!current?.entryPages.deliveries?.data)reader.entry(requestId,'deliveries')}"><summary>完整发送记录（与生成文字分开）</summary>
+      <details v-if="current.index.availability!=='legacy_unrecorded'" class="source-panel" @toggle="event=>{if((event.target as HTMLDetailsElement).open&&!current?.entryPages.messages?.data)reader.entry(requestId,'messages')}">
+        <summary class="source-panel-heading">收到的本次原始消息（与模型选择分开）</summary>
+        <div class="source-scroll" role="region" aria-label="本次原始消息内容" tabindex="0">
+        <p v-if="current.entryPages.messages?.loading" role="status">正在读取收到的消息…</p>
+        <p v-if="current.entryPages.messages?.error" role="alert">{{ current.entryPages.messages.error }} <button type="button" @click="reader.entry(requestId,'messages')">重试读取原始消息</button></p>
+        <p v-if="current.entryPages.messages?.data?.total===0">未记录成员输入；提醒和应用通知不制造成员消息。</p>
+        <article v-for="item in current.entryPages.messages?.data?.items??[]" :key="item.itemId"><template v-if="item.type==='message'">
+          <p class="source-meta">{{ item.sender.name||'未记录昵称' }}（{{ item.sender.id }}） · {{ time(item.time.at) }}（{{ item.time.basis==='platform_sent'?'平台发送时间':item.time.basis==='delivery_confirmed'?'发送确认时间':'接收时间' }}）</p>
+          <QqSourceParts :request-id="requestId" :parts="item.parts" :reader="reader" />
+        </template></article>
+        <button v-if="current.entryPages.messages?.data?.nextCursor" type="button" :disabled="current.entryPages.messages.loading" @click="reader.entry(requestId,'messages',true)">继续读取原始消息</button>
+        </div>
+      </details>
+      <section v-if="current.index.generatedReply" class="source-panel" aria-label="生成的回复文字">
+        <h5 class="source-panel-heading">生成的回复文字（不等于已发送）</h5>
+        <div class="source-scroll" role="region" aria-label="生成回复内容" tabindex="0"><SourceBody :request-id="requestId" :body="current.index.generatedReply" :reader="reader" /></div>
+      </section>
+      <details v-if="current.index.availability!=='legacy_unrecorded'" class="source-panel" @toggle="event=>{if((event.target as HTMLDetailsElement).open&&!current?.entryPages.deliveries?.data)reader.entry(requestId,'deliveries')}"><summary class="source-panel-heading">完整发送记录（与生成文字分开）</summary>
+        <div class="source-scroll" role="region" aria-label="完整发送记录内容" tabindex="0">
         <button type="button" :disabled="current.entryPages.deliveries?.loading" @click="reader.entry(requestId,'deliveries')">刷新发送记录</button>
         <p v-if="current.entryPages.deliveries?.loading" role="status">正在读取发送记录…</p><p v-if="current.entryPages.deliveries?.error" role="alert">{{ current.entryPages.deliveries.error }} <button type="button" @click="reader.entry(requestId,'deliveries')">重试读取发送记录</button></p>
         <p v-if="current.entryPages.deliveries?.data?.total===0">尚无发送记录。</p>
         <article v-for="item in current.entryPages.deliveries?.data?.items??[]" :key="item.itemId"><template v-if="item.type==='delivery'"><p>{{ purposes[item.purpose]??item.purpose }} · 序号 {{ item.sequence }} · {{ deliveryStates[item.status] }} · {{ time(item.confirmedAt) }}<span v-if="item.partIndex!==undefined"> · 第 {{ item.partIndex }} / {{ item.totalParts }} 段</span></p><SourceBody :request-id="requestId" :body="item.body" :reader="reader"/><p v-if="item.fileUploaded">文件上传已确认。文件 ID：{{ item.fileIds.join('、') }}</p><p v-if="item.messageIds.length">平台消息 ID：{{ item.messageIds.join('、') }}</p></template></article>
         <button v-if="current.entryPages.deliveries?.data?.nextCursor" type="button" :disabled="current.entryPages.deliveries.loading" @click="reader.entry(requestId,'deliveries',true)">继续读取发送记录</button>
+        </div>
       </details>
-      <details v-if="current.index.availability!=='legacy_unrecorded'" @toggle="event=>{if((event.target as HTMLDetailsElement).open&&!current?.entryPages.summaries?.data)reader.entry(requestId,'summaries')}"><summary>与本次来源有关的摘要</summary>
+      <details v-if="current.index.availability!=='legacy_unrecorded'" class="source-panel" @toggle="event=>{if((event.target as HTMLDetailsElement).open&&!current?.entryPages.summaries?.data)reader.entry(requestId,'summaries')}"><summary class="source-panel-heading">与本次来源有关的摘要</summary>
+        <div class="source-scroll" role="region" aria-label="关联摘要内容" tabindex="0">
         <button type="button" :disabled="current.entryPages.summaries?.loading" @click="reader.entry(requestId,'summaries')">刷新摘要状态</button>
         <p v-if="current.entryPages.summaries?.loading" role="status">正在读取摘要记录…</p><p v-if="current.entryPages.summaries?.error" role="alert">{{ current.entryPages.summaries.error }}</p>
         <p v-if="current.entryPages.summaries?.data?.total===0">尚无关联摘要。原文、容量整理与讨论总结分别保存。</p>
@@ -120,10 +140,38 @@ async function refresh(){await props.reader.index(props.requestId);await props.r
           <SourceBody :request-id="requestId" :body="item.body" :reader="reader" />
         </template></article>
         <button v-if="current.entryPages.summaries?.data?.nextCursor" type="button" :disabled="current.entryPages.summaries.loading" @click="reader.entry(requestId,'summaries',true)">继续读取摘要记录</button>
+        </div>
       </details>
+      </div>
+      </div>
     </template>
   </section>
 </template>
 <style scoped>
-.source-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.source-controls select{max-width:100%}.source-items{padding-inline-start:24px}.source-items>li{padding:8px 0;border-bottom:1px solid #808080}h5{font:inherit;font-weight:bold;margin:8px 0}section,p,article{overflow-wrap:anywhere}button:focus-visible,select:focus-visible,h5:focus-visible,.source-relations:focus-visible{outline:2px solid #000;outline-offset:2px}
+.source-detail { container: qq-source / inline-size; width: 100%; min-width: 0; font-size: 13px; line-height: 1.55; color: #111; }
+.source-detail p { margin: 4px 0; }
+.source-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-block: 8px; }
+.source-controls h4, .source-controls h5 { margin: 0; }
+.source-controls h4 { font-size: 14px; }
+.source-controls label { font-size: 12px; }
+.source-controls select { flex: 1 1 240px; min-width: 0; max-width: 100%; }
+.source-detail button, .source-detail select { font: inherit; padding: 4px 8px; }
+.source-columns { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
+.source-support { display: grid; min-width: 0; gap: 10px; }
+.source-panel { min-width: 0; margin: 0; padding: 8px 10px; border: 1px solid #808080; background: #fff; }
+.source-panel-heading { margin: 0 0 6px; padding-bottom: 6px; border-bottom: 1px solid #c4c4c4; font-size: 13px; font-weight: bold; text-wrap: balance; }
+details.source-panel:not([open]) > summary { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+.source-scroll { max-block-size: min(42dvh, 26rem); overflow: auto; padding: 2px 4px; scrollbar-gutter: stable; }
+.source-input-scroll, .source-relations .source-scroll { max-block-size: min(68dvh, 42rem); }
+.source-items { list-style: none; padding: 0; margin: 0; }
+.source-items > li, .source-scroll > article { padding: 6px 0; border-bottom: 1px solid #d0d0d0; }
+.source-items > li:last-child, .source-scroll > article:last-of-type { border-bottom: 0; }
+.source-item-heading h6 { display: inline; font: inherit; font-weight: bold; margin: 0; }
+.source-item-heading .source-meta { display: inline; margin-inline-start: 8px; }
+.source-meta { font-size: 12px; color: #454545; font-variant-numeric: tabular-nums; }
+.source-detail section, .source-detail p, .source-detail article, .source-item-heading { overflow-wrap: anywhere; }
+.source-detail :is(button, select, summary, h6, .source-scroll, .source-relations):focus-visible { outline: 2px solid #082b78; outline-offset: 2px; }
+@container qq-source (min-width: 760px) {
+  .source-columns { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+}
 </style>

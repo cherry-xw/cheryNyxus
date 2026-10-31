@@ -41,4 +41,4 @@ const representation=(value?:string)=>({native:'本次请求附带文件（不�
     <p v-else>未支持的消息段：{{ part.sourceType }} {{ part.description }}</p>
   </div>
 </template>
-<style scoped>.source-part{overflow-wrap:anywhere}.source-part dd{margin:4px 0 8px}p{margin:8px 0}</style>
+<style scoped>.source-part{overflow-wrap:anywhere}.source-part dl{margin:4px 0}.source-part dd{margin:2px 0 4px}p{margin:4px 0}</style>
