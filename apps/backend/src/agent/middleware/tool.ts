@@ -861,7 +861,7 @@ async function* doExecuteSense(
         {
           name,
           args,
-          result: { content: redactedContent, hash: result.hash, replaced: replaced.length > 0 },
+          result: { content: redactedContent, hash: result.hash, replaced: replaced.length > 0, status: result.status },
           hash: result.hash,
           chatId: ctx.soul.chatId,
         },

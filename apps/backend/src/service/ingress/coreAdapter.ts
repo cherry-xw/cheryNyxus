@@ -34,6 +34,9 @@ import { sourceExecutionAuthority, validateSourceInput } from './sourceExecution
 import { sourceMaintenanceCall } from './sourceMaintenanceCall.js'
 import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
 import { getSenseRegistryVersion } from '@/core/sense/senseRegistry.js'
+import { getSense, getSenseOrigin } from '@/core/sense/senseRegistry.js'
+import { authorizeToolCall, compileRoleSecurity } from '@/core/security/rolePolicy.js'
+import { SupervisionLevel } from '@/core/config.js'
 import { preflightModelInput } from '@/agent/provider/inputPreflight.js'
 import { ErrorId } from '@chery/protocol'
 import { SourceContextRepository, sourceContextError } from '@/db/sourceContext.js'
@@ -232,12 +235,21 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
       ),
     resolvePreset: (name) => {
       const resolved = resolvePresetSelection(name)
+      const tools=config.sense_groups?.[resolved.selection.senseGroup]??[]
+      const security=compileRoleSecurity(resolved.leaderName,config.roles?.[resolved.leaderName])
+      const toolStatus=tools.map(entry=>{const [selection,level]=entry.split(':').map(value=>value.trim()),base=selection!.split('.')[0]!,sense=getSense(base)
+        const available=!!sense&&getSenseOrigin(base)?.available?.()!==false
+        const decision=authorizeToolCall({security,name:base,args:{},configuredLevel:level==='auto'?SupervisionLevel.auto:level==='manual'?SupervisionLevel.manual:SupervisionLevel.smart,
+          ...(selection!.includes('.')?{operation:{key:selection!,allowed:true}}:{})}).decision
+        return {selection:selection!,available,allowed:decision==='allow',reason:!available?'tool_unavailable':decision!=='allow'?'role_'+decision:undefined}
+      })
       return immutableSnapshot({
         name,
         presetId: resolved.presetId,
         leaderName: resolved.leaderName,
         ...resolved.selection,
         tools: config.sense_groups?.[resolved.selection.senseGroup] ?? [],
+        toolStatus,
       })
     },
     ensureConversation: (owner, key, preset) => {

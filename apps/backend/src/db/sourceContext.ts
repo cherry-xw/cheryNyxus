@@ -272,6 +272,7 @@ export interface SourceSummaryOperation {
   phase: 'history' | 'memory' | 'summary' | 'commit'; version: number; summaryId?: string; reasonCode?: string
 }
 export interface SourceSummaryPreparation {
+  toolObservations?: Array<{runId:string;callId:string;toolName:string;result:unknown}>
   operation: SourceSummaryOperation; snapshot: SourceSnapshot; records: SourceRecord[]; baseSummary?: SourceSummary
   attachments: SourceAttachmentVersion[]
   deliveries: Array<{ deliveryId: string; purpose: string; kind: string; frame: QQNotification; source?: SourceRecordRef; result?: QQDeliveryResultRequest; revision: number }>
@@ -1059,9 +1060,11 @@ export class SourceContextRepository {
       if (old) return { ...JSON.parse(old.input_json), operation: this.learningStatus(authority, scopeId, input.operationId) }
       const selected = this.allRecords(scopeId).filter(record => record.ingestOrdinal > input.afterOrdinal).slice(0, 100)
       const records = selected.filter(record => record.receivedAt >= (input.since ?? 0))
-      const runs = (this.db.prepare('SELECT rowid AS ordinal,* FROM source_runs WHERE scope_id=? AND rowid>? ORDER BY rowid').all(scopeId, input.afterRun) as Array<{ ordinal: number; run_id: string; request_id: string }>)
+      const selectedRuns = (this.db.prepare('SELECT rowid AS ordinal,* FROM source_runs WHERE scope_id=? AND rowid>? ORDER BY rowid').all(scopeId, input.afterRun) as Array<{ ordinal: number; run_id: string; request_id: string }>)
         .filter(run => input.completedRequests.includes(run.request_id)).slice(0, 50)
-      if (!selected.length && !runs.length) return null
+      const runs=selectedRuns.filter(run=>{const snapshotRow=this.db.prepare('SELECT data_json FROM source_snapshots WHERE request_id=? AND scope_id=? AND parent_snapshot_id IS NULL').get(run.request_id,scopeId) as JsonRow|undefined
+        return snapshotRow&&JSON.parse(snapshotRow.data_json).selectedAt >= (input.since??0)})
+      if (!selected.length && !selectedRuns.length) return null
       const evidence: import('@chery/plugin-api').IngressWebEvidence[] = []
       for (const run of runs) for (const row of this.db.prepare("SELECT * FROM source_tool_observations WHERE scope_id=? AND run_id=? AND tool_name='web_fetch'").all(scopeId, run.run_id) as Array<{ call_id: string; data_json: string }>) {
         const snapshotRow = this.db.prepare('SELECT data_json FROM source_snapshots WHERE request_id=? AND scope_id=? AND parent_snapshot_id IS NULL').get(run.request_id, scopeId) as JsonRow | undefined
@@ -1075,7 +1078,7 @@ export class SourceContextRepository {
         try { url = new URL(body.url) } catch { continue }
         if (!['https:','http:'].includes(url.protocol) || url.username || url.password) continue
         const contentHash = sourceFingerprint(body.text)
-        evidence.push({ evidenceId: `web-${sourceFingerprint([run.run_id,row.call_id,contentHash])}`, runId: run.run_id, callId: row.call_id,
+        evidence.push({ evidenceId: contentHash, runId: run.run_id, callId: row.call_id,
           url: url.href, observedAt: body.observedAt, text: body.text, contentHash, truncated: body.truncated === true,
           publicEligible: body.publicEligible === true && !url.search })
       }
@@ -1094,7 +1097,7 @@ export class SourceContextRepository {
           status: row.result_json ? JSON.parse(row.result_json).status : 'pending' }
       }).filter(delivery => runs.some(run => run.request_id === delivery.requestId))
       const prepared: import('@chery/plugin-api').IngressLearningPreparation = { operation, records, evidence, deliveries,
-        throughOrdinal: snapshot.throughIngestOrdinal, throughRun: runs.at(-1)?.ordinal ?? input.afterRun,
+        throughOrdinal: snapshot.throughIngestOrdinal, throughRun: selectedRuns.at(-1)?.ordinal ?? input.afterRun,
         runs: runs.map(run => ({ requestId: run.request_id, runId: run.run_id, messages: this.runMessages(authority, scopeId, run.request_id)
           .map(message => ({ state: message.state, body: { role: message.body.role, content: message.body.content } })) })) }
       this.db.prepare('INSERT INTO source_learning_operations VALUES (?,?,?,?)').run(input.operationId, scopeId, JSON.stringify(operation), JSON.stringify(prepared))
@@ -1108,16 +1111,19 @@ export class SourceContextRepository {
     const operation = JSON.parse(row.data_json)
     if (operation.permissionRevision !== scope.permissionRevision) sourceContextError('PERMISSION_DENIED')
     // Summary selection changes deliberately do not invalidate a learning operation.
-    this.snapshot(authority, scopeId, operation.snapshotId)
+    const snapshot=this.snapshot(authority, scopeId, operation.snapshotId)
+    this.read(authority,scopeId,snapshot.orderedItems.flatMap(item=>item.type==='message'?[{recordId:item.recordId,revision:item.revision}]:[]))
     return operation
   }
   updateLearning(authority: SourceAuthority, scopeId: string, input: import('@chery/plugin-api').IngressLearningUpdate): import('@chery/plugin-api').IngressLearningOperation {
+    return this.db.transaction(()=>{
     const old = this.learningStatus(authority, scopeId, input.operationId)
     if (old.version !== input.expectedVersion || ['completed','cancelled'].includes(old.status)) sourceContextError('REVISION_CONFLICT')
     const next = { ...old, status: input.status, reason: input.reason, localReceipt: input.localReceipt ?? old.localReceipt,
       publicReceipt: input.publicReceipt ?? old.publicReceipt, version: old.version + 1 }
     this.db.prepare('UPDATE source_learning_operations SET data_json=? WHERE operation_id=?').run(JSON.stringify(next), input.operationId)
     authority.validate(); return next
+    })()
   }
   ensureRun(authority: SourceAuthority, scopeId: string, requestId: string, runId: string): string {
     return this.db.transaction(() => {
@@ -1359,7 +1365,11 @@ export class SourceContextRepository {
       const rows = this.db.prepare(`SELECT d.*,f.data_json AS result_json,f.revision AS fact_revision FROM source_deliveries d
         LEFT JOIN source_delivery_facts f ON f.delivery_id=d.delivery_id AND f.revision=(SELECT MAX(revision) FROM source_delivery_facts WHERE delivery_id=d.delivery_id)
         WHERE d.scope_id=? ORDER BY d.created_at,d.delivery_id`).all(scopeId) as Array<{ delivery_id: string; record_id: string | null; purpose: string; kind: string; frame_json: string; result_json: string | null; fact_revision: number | null }>
-      const prepared: SourceSummaryPreparation = { operation, snapshot, records, attachments, ...(baseSummary ? { baseSummary } : {}),
+      const toolObservations=(this.db.prepare(`SELECT t.run_id,t.call_id,t.tool_name,t.data_json FROM source_tool_observations t JOIN source_runs r ON r.run_id=t.run_id AND r.scope_id=t.scope_id
+        JOIN source_snapshots s ON s.request_id=r.request_id AND s.scope_id=r.scope_id AND s.parent_snapshot_id IS NULL
+        WHERE t.scope_id=? AND json_extract(s.data_json,'$.selectedAt')<=?`).all(scopeId,snapshot.selectedAt) as Array<{run_id:string;call_id:string;tool_name:string;data_json:string}>)
+        .map(row=>({runId:row.run_id,callId:row.call_id,toolName:row.tool_name,result:JSON.parse(row.data_json)}))
+      const prepared: SourceSummaryPreparation = { operation, snapshot, records, attachments, toolObservations, ...(baseSummary ? { baseSummary } : {}),
         deliveries: rows.map(row => ({ deliveryId: row.delivery_id, purpose: row.purpose, kind: row.kind, frame: JSON.parse(row.frame_json),
           ...(row.record_id ? { source: ref(this.rawRecord(row.record_id)) } : {}),
           ...(row.result_json ? { result: JSON.parse(row.result_json) } : {}), revision: row.fact_revision ?? 0 })) }

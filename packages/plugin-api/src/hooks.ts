@@ -110,7 +110,7 @@ export interface PreToolUsePayload {
 export interface PostToolUsePayload {
   name: string
   args: Record<string, unknown>
-  result: { content: string; hash?: string; replaced?: boolean }
+  result: { content: string; hash?: string; replaced?: boolean; status?: string }
   hash?: string
   chatId: string
 }

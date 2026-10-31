@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { QQKnowledgeRequestSchemas, QQKnowledgeResponseSchemas } from './qqKnowledge.js'
 import { QQImageLimitsSchema, QQImagePolicyDefault, QQImageRequestSchemas, QQImageResponseSchemas, QQImageTransportMethods } from './qqImages.js'
 import { SourcePartsSchema, SourceReceiptResultSchema, SourceReceiptStatusSchema } from './sourceContext.js'
 import { QQFileRequestSchemas, QQFileResponseSchemas, QQFileTransportMethods } from './qqFiles.js'
@@ -492,6 +493,7 @@ export type QQStatus = z.infer<typeof QQStatusSchema>
 export type QQEntry = z.infer<typeof QQEntrySchema>
 export type QQEntryDetail = z.infer<typeof QQEntryDetailSchema>
 export const QQRequestSchemas = {
+  ...QQKnowledgeRequestSchemas,
   ...QQSourceRequestSchemas,
   ...QQFileRequestSchemas,
   'qq.event.receipt.get': z.object({ eventId: identifier }).strict(),
@@ -513,9 +515,10 @@ export const QQRequestSchemas = {
   'qq.entry.get': QQEntryRequestSchema,
 } as const
 export const QQResponseSchemas = {
+  ...QQKnowledgeResponseSchemas,
   ...QQSourceResponseSchemas,
   ...QQFileResponseSchemas,
-  'qq.event.receipt.get': SourceReceiptStatusSchema,
+  'qq.event.receipt.get': z.union([SourceReceiptStatusSchema,z.object({state:z.literal('deleted'),eventId:z.string(),alreadyProcessed:z.literal(true)}).strict()]),
   ...QQImageResponseSchemas,
   'qq.file.read': z.object({ offset: z.number().int().nonnegative(), dataBase64: z.string().max(349528), eof: z.boolean() }).strict(),
   'qq.information.result': z.object({ recorded: z.literal(true) }).strict(),
@@ -528,7 +531,7 @@ export const QQResponseSchemas = {
   'qq.config.get': QQConfigViewSchema,
   'qq.policy.get': z.object({ target, savedRevision: z.number().int().nonnegative(), appliedRevision: z.number().int().nonnegative(),
     effective: z.object({ mode: z.enum(['followup','proactive']), initiative: z.enum(['quiet','balanced','lively']), style: z.enum(['concise','casual','playful']), customStyle: z.string() }),
-    origins: z.record(z.string(), z.string()), capabilities: z.array(z.object({ name: z.string(), configured: z.boolean(), allowed: z.boolean(), ready: z.boolean().nullable(), reason: z.string().nullable(), lastResult: z.null() })),
+    origins: z.record(z.string(), z.string()), capabilities: z.array(z.object({ name: z.string(), configured: z.boolean(), allowed: z.boolean(), ready: z.boolean().nullable(), reason: z.string().nullable(), lastResult: z.string().nullable() })),
     proactive: z.object({ usedChecks: z.number().int().nonnegative(), limit: z.number().int().positive(), nextCheckAt: z.number().nullable() }) }).strict(),
   'qq.config.save': QQConfigSaveResponseSchema,
   'qq.status.get': QQStatusSchema,

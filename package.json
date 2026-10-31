@@ -20,6 +20,7 @@
     "docs:check-plan": "node scripts/docs/check-plan.mjs",
     "docs:check-metadata": "node scripts/docs/check-metadata.mjs",
     "docs:check": "node scripts/docs/check.mjs",
+    "qq:conversation-maintenance": "tsx --tsconfig apps/backend/tsconfig.json apps/backend/src/service/ingress/qqConversationMaintenanceCli.ts",
     "relay:dev": "tsx apps/relay/src/index.ts",
     "relay:start": "node apps/relay/dist/index.js",
     "relay:build": "vite build --config apps/relay/vite.config.ts",

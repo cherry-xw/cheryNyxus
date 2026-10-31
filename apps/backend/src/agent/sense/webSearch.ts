@@ -3,6 +3,7 @@ import { SupervisionLevel } from '@/core/config.js'
 import { WebSearchRuntime, webSearchSchema } from './web/runtime.js'
 import { createSearchServiceProvider, readSearchSettings } from './web/searchService.js'
 import { WebFetchRuntime, webFetchSchema } from './web/fetch.js'
+import { createHash } from 'node:crypto'
 
 export const webSearchRuntime = new WebSearchRuntime({
   timeoutMs: 80000,
@@ -32,7 +33,7 @@ export function createWebSearchSense(runtime: WebSearchRuntime) {
         untrusted: true,
         ...(result.error ? { error: result.error } : {}),
       })
-      return { content: observation.content, observation }
+      return { content: observation.content, observation, status: result.ok ? 'ok' as const : 'provider_error' as const }
     },
     SupervisionLevel.smart,
   )
@@ -51,7 +52,7 @@ export function createWebFetchSense(runtime: WebFetchRuntime) {
       const result = await runtime.fetch(input, ctx?.signal)
       const observation = normalizeObservation({
         kind: result.ok ? 'observation' : 'error',
-        content: result.ok ? result.text : JSON.stringify(result),
+        content: JSON.stringify({ ...result, ...(result.ok ? { evidenceId: createHash('sha256').update(JSON.stringify(result.text)).digest('hex') } : {}) }),
         sources: result.url ? [{ url: result.url, observedAt: result.observedAt }] : [],
         observedAt: result.observedAt,
         contentType: result.contentType,
@@ -62,6 +63,7 @@ export function createWebFetchSense(runtime: WebFetchRuntime) {
       })
       return {
         content: observation.content,
+        status: result.ok ? 'ok' as const : 'provider_error' as const,
         observation,
         ...(result.error
           ? {

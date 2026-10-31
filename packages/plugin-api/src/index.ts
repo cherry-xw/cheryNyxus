@@ -127,6 +127,7 @@ export interface IngressPreset {
   brain: string
   senseGroup: string
   tools?: readonly string[]
+  toolStatus?: readonly { selection: string; available: boolean; allowed: boolean; reason?: string }[]
   mcpServers: readonly string[]
 }
 export interface IngressInternalTextInput { preset: string; instruction: string; content: string; signal?: AbortSignal
@@ -209,6 +210,7 @@ export interface IngressSourceSummaryOperation {
   phase: 'history' | 'memory' | 'summary' | 'commit'; version: number; summaryId?: string; reasonCode?: string
 }
 export interface IngressSourceSummaryPreparation {
+  toolObservations?: Array<{runId:string;callId:string;toolName:string;result:unknown}>
   operation: IngressSourceSummaryOperation; snapshot: SourceSnapshot; records: SourceRecord[]; baseSummary?: SourceSummary
   attachments: SourceAttachmentVersion[]
   deliveries: Array<{ deliveryId: string; purpose: string; kind: string; frame: import('@chery/protocol').QQNotification;
