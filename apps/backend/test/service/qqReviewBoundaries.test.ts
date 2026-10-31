@@ -35,7 +35,7 @@ it('group memory operations preserve existing group entries and never copy membe
 })
 it('QQ disable removes business and retains management status', async () => {
   const store = new IngressStore(temp())
-  store.install(path.resolve('plugins/qq/dist'), false, undefined, {
+  store.install(path.resolve(import.meta.dirname, '../../../../plugins/qq/dist'), false, undefined, {
     grantedCapabilities: ['ingress', 'rpc.business', 'rpc.management', 'tools', 'hooks', 'channel.identity', 'manager.ui'],
     channelGrants: [{ channel: 'qq', credentialKind: 'qq' }],
   })
@@ -43,7 +43,7 @@ it('QQ disable removes business and retains management status', async () => {
   store.saveConfig('cherynyxus-qq-module', QQDefaultConfig, 0)
   const router = createRouter()
   const host = new IngressHost({ store, router,
-    core: { listPresets: () => [], resolvePreset: () => { throw new Error('not used') }, ensureConversation: async () => ({ chatId: 'synthetic' }), submit: async () => ({} as any), abort: async () => {}, onEvent: () => () => {} },
+    core: { listPresets: () => [], resolvePreset: () => { throw new Error('not used') }, ensureConversation: async () => ({ chatId: 'synthetic' }), submit: async () => ({} as any), abort: async () => {}, onEvent: () => () => {}, sourceConversations: {} as any },
     connections: { credentialKind: () => undefined, isOpen: () => false, send: () => false, onClose: () => () => {} },
   })
   hosts.push(host)

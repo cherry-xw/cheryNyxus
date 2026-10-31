@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket, type WebSocketServer } from 'ws'
 import { IngressHost } from '@/service/ingress/host.js'
 import { startService, type ServiceHandle } from '@/service/index.js'
@@ -15,6 +15,8 @@ import {
 } from '@/service/ingress/coreAdapter.js'
 import { bootstrapAgentRuntime } from '@/agent/bootstrap.js'
 import { getMessages } from '@/db/message.js'
+import { closeAllDbs } from '@/db/index.js'
+import config from '@/utils/config.js'
 import { logger } from '@/utils/logger/index.js'
 import { OAuth2Auth } from '@/service/auth/index.js'
 import type { IngressCoreAdapter } from '@/service/ingress/api.js'
@@ -28,11 +30,17 @@ const roots: string[] = [],
   servers: WebSocketServer[] = [],
   adapters: Adapter[] = []
 const TOKEN = 'synthetic-wire-qq-token'
+const databaseDirectory = config.global.db_dir
+const packageDirectory = path.resolve(import.meta.dirname, '../../../../plugins/qq/dist')
 function temp() {
   const root = fs.mkdtempSync(path.join(process.env.CHERY_TEST_RUN_DIR!, 'qq-wire-'))
   roots.push(root)
   return root
 }
+beforeEach(() => {
+  closeAllDbs()
+  config.global.db_dir = path.join(temp(), 'db')
+})
 afterEach(async () => {
   for (const adapter of adapters.splice(0)) adapter.close()
   for (const host of hosts.splice(0)) await host.stop()
@@ -40,6 +48,8 @@ afterEach(async () => {
     for (const client of server.clients) client.terminate()
     await new Promise<void>((r) => server.close(() => r()))
   }
+  closeAllDbs()
+  config.global.db_dir = databaseDirectory
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true })
   delete process.env.QQBOT_PLATFORM_TOKEN
 })
@@ -48,10 +58,11 @@ async function start(
   broken = false,
   overrides: Partial<typeof QQDefaultConfig> = {},
 ) {
+  await bootstrapAgentRuntime()
   process.env.QQBOT_PLATFORM_TOKEN = TOKEN
   const store = new IngressStore(temp()),
     router = createRouter()
-  store.install(path.resolve('plugins/qq/dist'), false, undefined, {
+  store.install(packageDirectory, false, undefined, {
     grantedCapabilities: ['ingress', 'rpc.business', 'rpc.management', 'tools', 'hooks', 'channel.identity', 'manager.ui'],
     channelGrants: [{ channel: 'qq', credentialKind: 'qq' }],
   })
@@ -75,7 +86,8 @@ async function start(
   const calls: any[] = []
   let emit: (key: string, event: Readonly<Record<string, unknown>>) => void = () => {}
   const core: IngressCoreAdapter = {
-    listPresets: () => [],
+    ...createIngressCoreAdapter(),
+    listPresets: () => [{ name: 'p', presetId: 'p-id' }],
     resolvePreset: () => ({
       name: 'p',
       presetId: 'p-id',
@@ -195,9 +207,10 @@ const event = (kind: 'private' | 'group', id: number) => ({
 })
 describe('native adapter and real installed backend wire', () => {
   it('installed QQ attachment failure crosses production startService host filter and actual JSON logger', async () => {
+    await bootstrapAgentRuntime()
     process.env.QQBOT_PLATFORM_TOKEN = TOKEN
     const root = temp(), store = new IngressStore(root)
-    store.install(path.resolve('plugins/qq/dist'), false, undefined, {
+    store.install(packageDirectory, false, undefined, {
       grantedCapabilities: ['ingress', 'rpc.business', 'rpc.management', 'tools', 'hooks', 'channel.identity', 'manager.ui'],
       channelGrants: [{ channel: 'qq', credentialKind: 'qq' }],
     })
@@ -210,7 +223,9 @@ describe('native adapter and real installed backend wire', () => {
     let image: any, refreshCount = 0, importCount = 0
     try {
       const core: IngressCoreAdapter = {
-        listPresets: () => [], resolvePreset: () => ({ name: 'p', presetId: 'p-id', leaderName: 'l', brain: 'b', senseGroup: 's', mcpServers: [] }),
+        ...createIngressCoreAdapter(),
+        listPresets: () => [{ name: 'p', presetId: 'p-id' }],
+        resolvePreset: () => ({ name: 'p', presetId: 'p-id', leaderName: 'l', brain: 'b', senseGroup: 's', mcpServers: [] }),
         ensureConversation: async () => ({ chatId: 'synthetic' }),
         importFile: async () => { importCount++; throw Object.assign(new Error('https://secret.invalid/?token=credential'), { stage: 'download', code: 'HTTP_400' }) },
         submit: async () => ({} as any), abort: async () => {}, onEvent: () => () => {},
@@ -403,7 +418,9 @@ describe('native adapter and real installed backend wire', () => {
     // 群确认的持久延迟最多 5 秒，需同时留出 tick、回执与消息合并时间。
     await vi.waitFor(() => expect(s.calls).toHaveLength(1), { timeout: 8000 })
     expect(s.calls[0]).toMatchObject({
-      content: expect.stringContaining('hello'),
+      sourceInput: expect.objectContaining({
+        kind: 'source_snapshot',
+      }),
       requestIdentity: { source: 'plugin', channel: 'qq', subject: {
         selfId: '123', conversationType: 'group', groupId: '456', userId: '789',
       } },
@@ -460,8 +477,11 @@ describe('native adapter and real installed backend wire', () => {
       expect(entry).toMatchObject({ senderId: '789', senderName: 'synthetic', targetId: '789', inputPreview: 'hello' })
     })
     const details = await request(control, 'qq.entry.get', { requestId: entry.requestId })
-    expect(details.success).toBe(true)
-    expect(details.data.messages[0]).toMatchObject({ content: 'hello', senderId: '789' })
+    expect(details.success, JSON.stringify(details.error)).toBe(true)
+    expect(details.data.sourceContext.messages.items[0]).toMatchObject({
+      sender: { id: '789', name: 'synthetic' },
+      parts: [expect.objectContaining({ type: 'text', body: { state: 'available', text: expect.objectContaining({ preview: 'hello' }) } })],
+    })
     expect(JSON.stringify(details)).not.toContain(TOKEN)
     const qq = await connect(s.port, { 'X-QQBot-Token': TOKEN })
     expect((await request(qq, 'qq.entry.get', { requestId: entry.requestId })).success).toBe(false)

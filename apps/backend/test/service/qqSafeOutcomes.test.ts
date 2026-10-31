@@ -13,7 +13,7 @@ import { bootstrapAgentRuntime } from '@/agent/bootstrap.js'
 import config from '@/utils/config.js'
 import { getMessages } from '@/db/message.js'
 import { getInteraction } from '@/db/interaction.js'
-import { getSoulDb } from '@/db/index.js'
+import { closeAllDbs, getSoulDb } from '@/db/index.js'
 import { addSenseBrain } from '../agent/helpers/mockScripts.js'
 import { resetMockProviderState } from '@/agent/provider/mock.js'
 import * as chatSend from '@/service/chat/send.js'
@@ -27,12 +27,31 @@ import { createMockContext } from '../agent/helpers/fakeContext.js'
 
 let host: IngressHost | undefined, server: WebSocketServer | undefined, wire: BackendWire | undefined, root: string | undefined
 const token = 'isolated-safe-outcome-token'
-afterEach(async () => { vi.restoreAllMocks(); wire?.close(); await host?.stop(); if (server) { for (const c of server.clients) c.terminate(); await new Promise<void>(r => server!.close(() => r())) }; if (root) fs.rmSync(root, {recursive:true,force:true}); delete process.env.QQBOT_PLATFORM_TOKEN })
+const databaseDirectory = config.global.db_dir
+afterEach(async () => {
+  vi.restoreAllMocks()
+  wire?.close()
+  await host?.stop()
+  if (server) { for (const c of server.clients) c.terminate(); await new Promise<void>(r => server!.close(() => r())) }
+  closeAllDbs()
+  config.global.db_dir = databaseDirectory
+  if (root) fs.rmSync(root, {recursive:true,force:true})
+  host = undefined; server = undefined; wire = undefined; root = undefined
+  delete process.env.QQBOT_PLATFORM_TOKEN
+})
 async function setup() {
   await bootstrapAgentRuntime()
   process.env.QQBOT_PLATFORM_TOKEN = token
   root = fs.mkdtempSync(path.join(process.env.CHERY_TEST_RUN_DIR!, 'qq-safe-'))
+  closeAllDbs()
+  config.global.db_dir = path.join(root, 'db')
   const store = new IngressStore(root), router = createRouter(), core = createIngressCoreAdapter()
+  const executionErrors: unknown[] = []
+  const submit = core.submit.bind(core)
+  vi.spyOn(core, 'submit').mockImplementation(async (...args) => {
+    try { return await submit(...args) }
+    catch (error) { executionErrors.push(error); throw error }
+  })
   store.install(path.resolve(import.meta.dirname, '../../../../plugins/qq/dist'), false, undefined, { grantedCapabilities: ['ingress','rpc.business','rpc.management','tools','hooks','channel.identity','manager.ui'], channelGrants: [{channel:'qq',credentialKind:'qq'}] })
   store.setEnabled('cherynyxus-qq-module',true)
   const presetId=randomUUID()
@@ -48,9 +67,12 @@ async function setup() {
   await call('qq.identity.bind',{selfId:'123',sourceType:'napcat-action',validation:'accepted',verifiedAt:Date.now(),sourceVersion:'napcat'})
   await call('qq.request.recover',{selfId:'123'})
   const state=()=>JSON.parse(fs.readFileSync(store.safe('data/cherynyxus-qq-module/state.json'),'utf8'))
-  return {store,core,call,state}
+  return {store,core,call,state,executionErrors}
 }
-const event = (id:string, extra:object={}) => ({eventId:`qq:123:group:456:${id}`,selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:id,occurredAt:Math.floor(Date.now()/1000),mentionedBot:true,content:'offline request',attachments:[],...extra})
+const event = (id:string, extra:object={}) => {
+  const input = {eventId:`qq:123:group:456:${id}`,selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:id,occurredAt:Math.floor(Date.now()/1000),mentionedBot:true,content:'offline request',attachments:[],...extra}
+  return {...input, sourceParts: [{type:'text',partId:'p0',text:input.content}]}
+}
 
 describe('public registry exhaustiveness and privacy',()=>{
   it.each(Object.values(ErrorCode))('RPC code %s has valid safe feedback',code=>{
@@ -93,6 +115,7 @@ it('local provider HTTP422 reaches installed QQ safe failure outbox without unkn
     const s=await setup();await s.call('qq.event.submit',event('201'))
     await vi.waitFor(()=>expect(s.state().outbox.some((out:any)=>out.frame.type==='qq.request.failed')).toBe(true),{timeout:10000})
     const state=s.state(),notice=state.outbox.find((out:any)=>out.frame.type==='qq.request.failed')
+    expect(s.executionErrors).toEqual([])
     expect(notice.frame.data.text).toContain('上游图片审核拒绝')
     expect(notice.frame.data.text).toContain('可能存在误判')
     expect(notice.frame.data.text).toMatch(/追踪码：[0-9a-f]{8}/)
@@ -110,7 +133,10 @@ it.each([0,1,2])('real ask tool and original run question continuation; resume f
   const fixedTime=Math.floor(Date.now()/1000)
   const input = (id:string, extra:object={}) => event(id,{occurredAt:fixedTime,...(lost?{conversationType:'private',targetId:'789',eventId:`qq:123:private:789:${id}`} : {}),...extra})
   await s.call('qq.event.submit',input('101'))
-  await vi.waitFor(()=>expect(s.state().jobs[0]?.state).toBe('paused'),{timeout:10000})
+   await vi.waitFor(()=>{
+     expect(s.executionErrors).toEqual([])
+     expect(s.state().jobs[0]?.state,JSON.stringify(s.state().jobs[0])).toBe('paused')
+   },{timeout:10000})
   let state=s.state(),job=state.jobs[0]
   expect(job.outcome).toBe('paused');expect(job.reason).toBe('WAITING_FOR_ANSWER')
   expect(state.outbox.some((o:any)=>o.frame.type==='qq.request.failed')).toBe(false)
@@ -135,14 +161,22 @@ it.each([0,1,2])('real ask tool and original run question continuation; resume f
       if(first){first=false;throw new Error('offline resume temporarily unavailable')}
       return answer(...args)
     }
-    const rejected=await wire!.request('qq.event.submit',input('102',{content:'请继续原画',replyToMessageId:'9001'}))
-    expect(rejected.success).toBe(false)
-    expect(s.state().jobs[0].reason).toBe('QUESTION_RESUME_UNCONFIRMED')
+    const accepted=await s.call('qq.event.submit',input('102',{content:'请继续原画',replyToMessageId:'9001'}))
+    expect(accepted.accepted).toBe(true)
+    expect(accepted.receipt.handling.kind).toBe('question_answer')
+    await vi.waitFor(()=>expect(s.state().jobs[0]).toMatchObject({state:'paused',reason:'QUESTION_RESUME_UNCONFIRMED'}))
     if(lost===2) expect(getInteraction(batch)?.status).toBe('completed')
   }
   const answerSpy=vi.spyOn(s.core,'answerQuestions')
   const wrong=await wire!.request('qq.event.submit',input('199',{senderId:'790',content:'开始',replyToMessageId:'9001'}))
-  expect(wrong.success).toBe(false)
+  if (lost) {
+    expect(wrong.success).toBe(false)
+    expect(wrong.error.code).toBe('IDENTITY_REJECTED')
+  } else {
+    expect(wrong.success).toBe(true)
+    expect(wrong.data.accepted).toBe(false)
+    expect(wrong.data.receipt.handling).toMatchObject({kind:'rejected',reasonCode:'IDENTITY_REJECTED'})
+  }
   expect(answerSpy).not.toHaveBeenCalled()
   expect(getInteraction(batch)?.status).toBe(lost===2?'completed':'pending')
   await s.call('qq.event.submit',input('102',{content:'请继续原画',replyToMessageId:'9001'}))

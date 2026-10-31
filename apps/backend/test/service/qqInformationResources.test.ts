@@ -11,9 +11,9 @@ describe('installed QQ information resources',()=>{
  it('publishes skill and tool only through active QQ package lifecycle',async()=>{
   const root=fs.mkdtempSync(path.join(process.env.CHERY_TEST_RUN_DIR!,'qq-info-'))
   const store=new IngressStore(root)
-  store.install(path.resolve('plugins/qq/dist'),false,undefined,{grantedCapabilities:['ingress','rpc.business','rpc.management','tools','hooks','channel.identity','manager.ui'],channelGrants:[{channel:'qq',credentialKind:'qq'}]})
+  store.install(path.resolve(import.meta.dirname,'../../../../plugins/qq/dist'),false,undefined,{grantedCapabilities:['ingress','rpc.business','rpc.management','tools','hooks','channel.identity','manager.ui'],channelGrants:[{channel:'qq',credentialKind:'qq'}]})
   store.setEnabled('cherynyxus-qq-module',true)
-  const host=new IngressHost({store,router:createRouter(),core:{listPresets:()=>[],resolvePreset:vi.fn(),ensureConversation:vi.fn(),submit:vi.fn(),abort:vi.fn(),onEvent:()=>()=>{}},connections:{credentialKind:()=>undefined,isOpen:()=>false,send:()=>false,onClose:()=>()=>{}}})
+  const host=new IngressHost({store,router:createRouter(),core:{listPresets:()=>[],resolvePreset:vi.fn(),ensureConversation:vi.fn(),submit:vi.fn(),abort:vi.fn(),onEvent:()=>()=>{},sourceConversations:{} as any},connections:{credentialKind:()=>undefined,isOpen:()=>false,send:()=>false,onClose:()=>()=>{}}})
   const identity={source:'plugin' as const,ownerId:'cherynyxus-qq-module',channel:'qq',subject:{selfId:'1',userId:'2',conversationType:'private' as const}}
   try{
    await host.start()

@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IngressContext } from '@chery/plugin-api'
 import { QQDefaultConfig, QQEventSubmitRequestSchema } from '@chery/protocol'
 import { QQPlugin } from '../src/index.js'
 import { JobSchema } from '../src/state.js'
 import { prepareQQFileInputs } from '../src/assetMessages.js'
+import { stageSourceZip, readSourceZipText, sourceDirectory } from '../src/sourceWorkspace.mjs'
 
 let root: string
 beforeEach(async () => { root = await mkdtemp('/tmp/opencode/qq-assets-') })
@@ -18,91 +20,127 @@ function setup() {
     sha256: createHash('sha256').update('fixture').digest('hex'), source: 'upload', availability: 'available', createdAt: 1, ownerId: 'qq' }
   const core = { resolvePreset: () => preset, ensureConversation: vi.fn().mockResolvedValue({ chatId: 'chat' }),
     importFile: vi.fn().mockResolvedValue(asset), submit: vi.fn().mockResolvedValue({ runId: 'run' }),
-    readFileChunk: vi.fn().mockResolvedValue({ asset, offset: 0, dataBase64: Buffer.from('fixture').toString('base64'), eof: true }) }
-  const plugin = new QQPlugin({ dataDir: root, runtimeOptions: {}, core, identity: { bind: vi.fn().mockResolvedValue({}) }, log: vi.fn() } as unknown as IngressContext)
+    readFileChunk: vi.fn().mockResolvedValue({ asset, offset: 0, dataBase64: Buffer.from('fixture').toString('base64'), eof: true }),
+    sourceConversations: {
+      scope: vi.fn().mockResolvedValue({ scopeId: 'scope-1', selectionRevision: 1, permissionRevision: 1 }),
+      freeze: vi.fn(async (req: any) => ({
+        snapshotId: 'snap-1', scopeId: req.scopeId, requestId: req.requestId, turnId: req.requestId,
+        createdAt: 1, reason: 'initial', qqConfigRevision: 1, permissionRevision: 1, selectionRevision: 1,
+        actorRecord: req.actorRecord, inputRecords: req.inputRecords,
+        orderedItems: req.inputRecords.map((r: any) => ({ type: 'message', recordId: r.recordId, revision: r.revision, selectionReasons: ['current'], parts: [] })),
+      })),
+      read: vi.fn(async (req: any) => ({
+        items: req.selection.refs.map((r: any) => ({
+          state: 'available',
+          record: {
+            recordId: r.recordId, revision: r.revision, scopeId: req.scopeId, origin: 'member',
+            sender: { id: '123', name: 'user' }, platformMessageIds: ['1'], receivedAt: 1000,
+            parts: [{ type: 'text', partId: 'p0', text: '前' }, { type: 'attachment', partId: 'p1', attachmentId: 'att-1' }, { type: 'text', partId: 'p2', text: '后' }],
+          },
+        })),
+      })),
+      attachment: vi.fn().mockResolvedValue({ attachmentId: 'att-1', version: 1, mediaKind: 'file', originalName: 'fixture.txt', declaredMimeType: 'text/plain', state: { kind: 'pending' }, source: { recordId: 'rec-1', revision: 1, partId: 'p1' } }),
+      beginReceipt: vi.fn(async (req: any) => ({ state: 'pending', receiptId: `rcpt-${req.message.eventId}`, version: 1, record: { recordId: `rec-${req.message.eventId}`, revision: 1 } })),
+      receiptAttachments: vi.fn().mockResolvedValue([]),
+      completeReceipt: vi.fn(async (req: any) => ({ receiptId: req.receiptId, record: { recordId: `rec-${req.receiptId}`, revision: 1 }, handling: req.handling })),
+      lookupReceipt: vi.fn().mockResolvedValue({ state: 'not_found' }),
+      recordDelivery: vi.fn().mockResolvedValue(undefined),
+    } }
+  const plugin = new QQPlugin({ id: 'cherynyxus-qq-module', dataDir: root, runtimeOptions: {}, isEnabled: () => true, connections: { isOpen: () => false, send: () => false }, core, identity: { bind: vi.fn().mockResolvedValue({}) }, log: vi.fn() } as unknown as IngressContext)
   const internal = plugin as any
-  internal.stopped = false; internal.connection = 'connection'
+  internal.stopped = false; internal.connection = 'connection'; internal.verifiedConnection = 'connection'; internal.recovered = true
   internal.state.identityBinding = { selfId:'999' }
-  const job = JobSchema.parse({ requestId: 'request', input: { eventId: 'qq:999:private:123:1', selfId: '999', conversationType: 'private', targetId: '123', senderId: '123', senderName: 'user', messageId: '1', content: '前后', mentionedBot: false, occurredAt: 1,
-    attachments: [{ type: 'file', name: 'fixture.txt', url: 'https://files.example/fixture' }],
-    parts: [{ type: 'text', text: '前' }, { type: 'attachment', index: 0 }, { type: 'text', text: '后' }] },
+  internal.state.sourceScopes = {
+    'private:user:123': { scopeId: 'scope-1', ownerId: 'qq', channel: 'qq', selfId: '999', conversationType: 'private', targetId: '123', presetId: 'p-id', qqContextEpoch: '', state: 'active', permissionRevision: 1, selectionRevision: 1, createdAt: 1, updatedAt: 1 },
+    'group:456': { scopeId: 'scope-group', ownerId: 'qq', channel: 'qq', selfId: '999', conversationType: 'group', targetId: '456', presetId: 'p-id', qqContextEpoch: '', state: 'active', permissionRevision: 1, selectionRevision: 1, createdAt: 1, updatedAt: 1 },
+  }
+  const job = JobSchema.parse({ requestId: 'request', sourceScopeId: 'scope-1', sourceRecords: [{ recordId: 'rec-1', revision: 1 }],
+    input: { eventId: 'qq:999:private:123:1', selfId: '999', conversationType: 'private', targetId: '123', senderId: '123', senderName: 'user', messageId: '1', content: '前后', mentionedBot: false, occurredAt: 1,
+      sourceParts: [{ type: 'text', partId: 'p0', text: '前' }, { type: 'attachment', partId: 'p1', attachmentId: 'att-1' }, { type: 'text', partId: 'p2', text: '后' }],
+      attachments: [{ partId: 'p1', type: 'file', name: 'fixture.txt', url: 'https://files.example/fixture' }],
+      parts: [{ type: 'text', text: '前' }, { type: 'attachment', index: 0 }, { type: 'text', text: '后' }] },
     target: 'private:user:123', conversationKey: 'conversation', snapshot: { config, revision: 1, preset: 'p', presetId: 'p-id', brain: 'b', senseGroup: 's' }, state: 'queued', acceptedAt: 1, reply: '', toolIds: [], waits: 0 })
   internal.state.jobs.push(job)
   return { internal, core, job, asset }
 }
 
-describe('QQ 有序资产消息', () => {
-  it('passive image does not wake AI; selected background image precedes arbitrary mention text', async () => {
-    const { internal, core, job, asset } = setup()
+describe('QQ 有序资产消息与来源提交', () => {
+  it.each(['preset', 'reset', 'removed'])('配置 %s 立即撤销旧 ZIP 读取和进行中命令的取消信号', async change => {
+    const { internal, core, job } = setup()
+    internal.snapshot = structuredClone(job.snapshot)
+    Object.assign(internal.snapshot.config, { selfId:'999', users:['123'], bindings:{'private:user:123':'p'} })
+    job.state = 'running'
+    const running = new AbortController()
+    internal.aborters.set(job.requestId, running)
+    const access = await internal.sourceAccess(job, running.signal)
+    const body = Buffer.alloc(22);body.writeUInt32LE(0x06054b50)
+    const mount = await stageSourceZip({ ...access, source:{recordId:'record',revision:1,partId:'p1'}, senderId:'123',originalName:'in.zip',body,
+      asset:{assetId:'zip',assetVersionId:'v1',sizeBytes:body.length,sha256:createHash('sha256').update(body).digest('hex')} })
+    await writeFile(path.join(access.sourceRoot,sourceDirectory(access.scope),'incoming-zips',mount.slotKey,'extracted','text'),'allowed before change')
+    expect((await readSourceZipText({...access,slotKey:mount.slotKey,path:'text'})).text).toBe('allowed before change')
+    const next = structuredClone(internal.snapshot.config)
+    if (change==='removed') { next.users=[];next.bindings={} }
+    if (change==='preset') {
+      next.bindings['private:user:123']='new'
+      vi.spyOn(core,'resolvePreset').mockImplementation(()=>({name:'new',presetId:'new-preset',leaderName:'l',brain:'b',senseGroup:'s',mcpServers:[]}))
+    }
+    if (change==='reset') internal.state.contextEpoch='new-context'
+    ;(core.sourceConversations as any).configure=vi.fn(async()=>change==='removed'?[]:[{
+      ...internal.state.sourceScopes['private:user:123'],scopeId:'replacement-scope',permissionRevision:2,
+      presetId:change==='preset'?'new-preset':'p-id',qqContextEpoch:internal.state.contextEpoch,
+    }])
+    vi.spyOn(internal.nativeImages,'refresh').mockImplementation(()=>{})
+    vi.spyOn(internal,'publishServiceState').mockImplementation(()=>{})
+    await internal.applyConfig({revision:2,config:next})
+    expect(running.signal.aborted).toBe(true)
+    expect(access.signal.aborted).toBe(true)
+    await expect(access.validate()).rejects.toThrow()
+    await expect(readSourceZipText({...access,slotKey:mount.slotKey,path:'text'})).rejects.toThrow()
+  })
+
+  it('passive image does not wake AI; selected background image is retained in source snapshot without URL leakage', async () => {
+    const { internal, core, job } = setup()
     const now = Math.floor(Date.now() / 1000)
     internal.snapshot = structuredClone(job.snapshot)
     internal.snapshot.config.groups = ['456']; internal.snapshot.config.bindings = { 'group:456': 'p' }
     const source = { ...job.input, conversationType: 'group' as const, targetId: '456', messageId: 'passive', eventId: 'passive', mentionedBot: false, content: '', parts: undefined, occurredAt: now,
-      attachments: [{ type: 'image', mimeType: 'image/png', url: 'https://files.example/?signature=secret' }] }
-    internal.state.discussions['group:456'] = { active: true, lastActivity: Date.now(), startedAt: Date.now(), closedAt: 0, summary: '', summaryPending: false, summaryRetryAt: 0, messages: [] }
+      sourceParts: [{ type: 'attachment' as const, partId: 'p0', attachmentId: 'img-1' }],
+      attachments: [{ partId: 'p0', type: 'image' as const, mimeType: 'image/png', url: 'https://files.example/?signature=secret' }] }
+    internal.state.discussions['group:456'] = { active: true, lastActivity: Date.now(), startedAt: Date.now(), closedAt: 0, sourceScopeId: 'scope-group', summaryPending: false, summaryRetryAt: 0 }
     const count = internal.state.jobs.length
     expect((await internal.submit(source)).accepted).toBe(false)
     expect(internal.state.jobs).toHaveLength(count)
-    internal.paused = true
-    expect((await internal.submit({ ...source, messageId: 'ask', eventId: 'ask', mentionedBot: true, content: '前面这图讲什么的？', attachments: undefined })).accepted).toBe(true)
+    expect((await internal.submit({ ...source, messageId: 'ask', eventId: 'ask', mentionedBot: true, content: '前面这图讲什么的？',
+      sourceParts: [{ type: 'text', partId: 'p0', text: '前面这图讲什么的？' }], attachments: undefined })).accepted).toBe(true)
     const accepted = internal.state.jobs.at(-1)
-    internal.state.imageSources[accepted.conversationKey] = { [JSON.stringify(['999','group','456','passive',0])]: {type:'asset',partId:'image',assetId:asset.id,assetVersionId:asset.versionId,variant:'original',usage:'content',kind:'image'} }
-    expect(accepted.background.map((message: any) => message.messageId)).toContain('passive')
-    core.importFile.mockResolvedValue({ ...asset, kind: 'image', mimeType: 'image/png' })
-    internal.paused = false
     await internal.execute(accepted)
     const submitted = core.submit.mock.calls.at(-1)![0]
-    expect(submitted.parts.filter((part: any) => part.type === 'asset')).toHaveLength(1)
-    expect(submitted.parts.findIndex((part: any) => part.type === 'asset')).toBeLessThan(submitted.parts.findIndex((part: any) => part.text === accepted.input.content))
+    expect(submitted.sourceInput).toMatchObject({ kind: 'source_snapshot', requestId: accepted.requestId, scopeId: 'scope-group' })
     expect(core.importFile).not.toHaveBeenCalled()
     expect(JSON.stringify(submitted)).not.toContain('signature')
   })
-  it('只有文件也可入站，越界附件位置仍拒绝', () => {
+
+  it('只有文件也可入站，越界附件位置或缺失 sourceParts 仍拒绝', () => {
     const { job } = setup()
-    expect(QQEventSubmitRequestSchema.safeParse({ ...job.input, content: '', parts: [{ type: 'attachment', index: 0 }] }).success).toBe(true)
+    expect(QQEventSubmitRequestSchema.safeParse({ ...job.input, content: '', sourceParts: [{ type: 'attachment', partId: 'p1', attachmentId: 'att-1' }], parts: [{ type: 'attachment', index: 0 }] }).success).toBe(true)
     expect(QQEventSubmitRequestSchema.safeParse({ ...job.input, parts: [{ type: 'attachment', index: 1 }] }).success).toBe(false)
+    expect(QQEventSubmitRequestSchema.safeParse({ ...job.input, sourceParts: [] }).success).toBe(false)
   })
 
-  it('导入资产后按文字文件文字顺序提交，不把下载地址发送给模型', async () => {
+  it('执行时通过 sourceInput 提交固定来源快照，不把下载地址发送给模型', async () => {
     const { internal, core, job } = setup()
+    internal.snapshot = structuredClone(job.snapshot)
+    internal.snapshot.config.users = ['123']; internal.snapshot.config.bindings = { 'private:user:123': 'p' }
     await internal.execute(job)
-    expect(core.importFile).toHaveBeenCalledTimes(1)
     const submitted = core.submit.mock.calls[0]![0]
-    expect(submitted.parts.map((part: { type: string }) => part.type)).toEqual(['text', 'text', 'asset', 'text'])
-    expect(submitted.parts[2]).toMatchObject({ assetId: 'asset', assetVersionId: 'version' })
+    expect(submitted.sourceInput).toMatchObject({
+      kind: 'source_snapshot',
+      requestId: job.requestId,
+      turnId: job.requestId,
+      scopeId: 'scope-1',
+      snapshotId: 'snap-1',
+    })
     expect(JSON.stringify(submitted)).not.toContain('files.example')
-  })
-
-  it('群 A 图片进入核心，B 引用跨重启复用同一版本且不重复下载', async () => {
-    const { internal, core, job, asset } = setup()
-    job.input = { ...job.input, eventId: 'qq:999:group:456:1', conversationType: 'group', targetId: '456', senderId: '123', attachments: [{ type: 'image', mimeType: 'image/png', url: 'https://files.example/image' }] }
-    job.target = 'group:456'
-    const imageAsset = { ...asset, kind: 'image', mimeType: 'image/png' }
-    core.importFile.mockResolvedValue(imageAsset)
-    internal.state.imageSources[job.conversationKey] = { [JSON.stringify(['999','group','456','1',0])]: {type:'asset',partId:'image',assetId:asset.id,assetVersionId:asset.versionId,variant:'original',usage:'content',kind:'image'} }
-    await internal.execute(job)
-    const state = JSON.parse(JSON.stringify(internal.state))
-    internal.state = state
-    const b = JobSchema.parse({ ...job, requestId: 'request-b', state: 'queued', inputParts: undefined,
-      input: { ...job.input, eventId: 'qq:999:group:456:2', messageId: '2', senderId: '789', senderName: 'B', replyToMessageId: '1', content: '引用原图', parts: undefined, attachments: undefined } })
-    internal.state.jobs.push(b)
-    await internal.execute(b)
-    expect(core.importFile).not.toHaveBeenCalled()
-    expect(core.readFileChunk).toHaveBeenCalledWith(expect.objectContaining({ assetId: asset.id, assetVersionId: asset.versionId, conversationKey: job.conversationKey }))
-    const submitted = core.submit.mock.calls.at(-1)![0]
-    expect(submitted.parts.filter((part: { type: string }) => part.type === 'asset')).toEqual([expect.objectContaining({ assetId: asset.id, assetVersionId: asset.versionId })])
-    expect(JSON.stringify(submitted.parts)).toContain('引用原图')
-    expect(JSON.stringify(submitted.parts)).toContain('789')
-    expect(JSON.stringify(submitted.parts)).toContain('123')
-  })
-
-  it('导入失败保留不可读取说明，不编造资产', async () => {
-    const { internal, core, job } = setup()
-    core.importFile.mockRejectedValueOnce(new Error('unavailable'))
-    await internal.execute(job)
-    const parts = core.submit.mock.calls[0]![0].parts
-    expect(parts.some((part: { type: string }) => part.type === 'asset')).toBe(false)
-    expect(JSON.stringify(parts)).toContain('不能读取其内容')
   })
 
   it.each(['download', 'invalid', 'permission', 'unknown'])('附件 %s 诊断不泄漏错误、cause、下载地址或正文', async stage => {

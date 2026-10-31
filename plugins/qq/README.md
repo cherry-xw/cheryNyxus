@@ -26,7 +26,7 @@ QQ业务由本包负责，NapCat适配器只整理事件和收发，Manager仅�
 
 等待问题是 `paused`，不是失败；问题发送失败／未知单独保存，不重发未知问题、不自动执行旧任务。答案已保存但续接确认失败保留 `QUESTION_RESUME_UNCONFIRMED`，原输入重投才受控核对同一命令；重启本身不执行任务。人工工具审批仅提示在已登录工作台处理，群文字不构成批准。Core 未结束的审批等待与真正任务失败分别呈现。
 
-错误与状态说明统一遵循[安全错误映射](../../docs/shared/protocol/errors.md#安全文案与渠道映射)。源码离线回归不代表部署或真实 QQ 验收。
+错误与状态说明统一遵循[安全错误映射](../../docs/shared/protocol/errors.md#qq-安全错误事实)。源码离线回归不代表部署或真实 QQ 验收。
 
 问答续接遵循以下规则：只有 Core 已确认送达的问题才允许绑定回答；QQ 持久化问题批、原运行 ID、问题消息 ID 与原生发送回执，仅原发起者在原目标明确引用该问题可提交自由文本答案。批次所有问题答齐后，Core 以稳定 commandId 和原 runId 幂等续接；答案持久化后续接确认失败时保留 `QUESTION_RESUME_UNCONFIRMED`，相同输入重投只核对/续接原任务，不创建第二条用户输入。重启不自动执行旧任务。其它错误矩阵、审批与断线/unknown 边界不由这条普通问答验收替代。
 
@@ -141,7 +141,7 @@ QQ安装包独立持久化，Backend镜像标签不能代表已安装插件版�
 
 声音设置与语音策略见[对话与语音](#对话与语音)，未配置可用固定声音或当前输入未授权时隐藏语音工具。群事实保存在 `memory/topics`，但 `src/index.ts` 的 `qq.memory.stats` 仍只遍历 `personal/group/member`，未统计新群事实；管理页按接口已有的 `files/count/unreadable` 展示文件统计，明确不包含新群事实。来源消息存在不能证明事实结论正确。RUN_UNKNOWN_FAILED的原始底层异常尚未定位；投递不确定的旧动作不得重发。
 
-自动验证还有明确限制：`qqProcessRestart.test.ts` 依赖预构建的子进程程序，`qqRestart.vite.config.ts` 的 `@` 路径仍指向不存在的根 `src`；该用例对未知投递仍期望 `paused`，与计算完成和投递结果独立保存的约定不符，不能将该用例标为通过。实际断线、旧连接等待清理、已知回执保留及未知确认不重放的离线验证入口为 `apps/backend/test/service/qqDisconnectOutcomes.test.ts`；不改变保持在线但单个原生调用未返回的等待政策。
+进程重启离线验证由 `apps/backend/test/service/qqProcessRestart.test.ts` 在隔离目录中构建并启动真实子进程，不依赖既有打包文件；断线、旧连接等待清理、已知回执保留及未知确认不重放另见 `apps/backend/test/service/qqDisconnectOutcomes.test.ts`。这些测试不改变保持在线但单个原生调用未返回的等待政策，也不代替生产重启与真实发送验收。
 
 群聊确认表情先持久化入发送队列，再按 `notBefore` 延迟 1.5–5 秒发送；正文不能越过队列中的确认表情。避免正文先完成后，延迟回调追加的确认无人处理。验证入口为 `qqPluginWire.test.ts`；自动验证不代表实际 QQ 发送验收。
 

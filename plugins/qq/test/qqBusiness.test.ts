@@ -144,13 +144,15 @@ test('files and memory reject symlinks at leaf, within root, and above configure
 })
 
 test('tools require plugin QQ request identity, register scoped memory and file tools, and use request memory revisions', async () => {
-  const tools = createQQTools(root, path.join(root, 'files'))
-  expect(tools.map(t => t.sense.definition.function.name)).toEqual(['qq_group_memory_search', 'qq_group_memory_manage', 'qq_memory_manage', 'qq_read_file', 'qq_write_file', 'qq_group_read_file', 'qq_group_write_file', 'qq_container_exec'])
+  const tools = createQQTools(root, path.join(root, 'files'), undefined, undefined, undefined, undefined, undefined,
+    async () => ({ sourceRoot: path.join(root, 'source'), scopeId: 'scope-1', validate: () => {} }))
+  expect(tools.map(t => t.sense.definition.function.name)).toEqual(['qq_group_memory_search', 'qq_group_memory_manage', 'qq_memory_manage', 'qq_read_file', 'qq_write_file', 'qq_group_read_file', 'qq_group_write_file', 'qq_source_file_read', 'qq_container_exec'])
   for (const registration of tools) {
     expect(registration.sense.supervisionLevel).toBe(0)
     expect(registration.sense.definition.function.parameters.additionalProperties).toBe(false)
     const handler = registration.sense.executor.execute
-    const input = registration.sense.definition.function.name === 'qq_memory_manage' ? save('personal', 'x', 'ok') : { path: 'note', content: 'ok' }
+    const name = registration.sense.definition.function.name
+    const input = name === 'qq_memory_manage' ? save('personal', 'x', 'ok') : name === 'qq_source_file_read' ? { slotKey: 'slot-1', path: 'note.txt' } : { path: 'note', content: 'ok' }
     for (const identity of [{ source: 'web' as const, channel: 'qq', subject: privateSubject },
       { source: 'plugin' as const, channel: 'web', subject: privateSubject }, { source: 'plugin' as const, channel: 'qq' }]) {
       expect((await handler(input, new Map(), { chatId: 'chat', requestView: view(identity) })).status).toBe('provider_error')
