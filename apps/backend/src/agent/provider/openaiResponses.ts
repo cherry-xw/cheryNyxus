@@ -1,5 +1,6 @@
 /** OpenAI Responses API 协议 adapter（同样可用于透明兼容的中转与 MiniMax Responses）。 */
 import { LlmProtocol } from '@chery/protocol'
+import { trackInput, trackTextInput } from '@/core/message/inputOrigins.js'
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter.js'
 import {
   registerMessageAdapter,
@@ -255,12 +256,13 @@ function buildResponsesInput(
   const lastUser = [...visible].reverse().find((m) => m.role === 'user')
   const attachmentsByMessage = groupAttachmentsByMessage(attachments, lastUser?.id)
   for (const message of visible) {
+    const first = input.length
     if (message.role === 'sense') {
-      input.push({
+      input.push(trackTextInput({
         type: 'function_call_output',
         call_id: message.id,
         output: message.replace?.state ? message.replace.content : message.content,
-      })
+      }, message))
       continue
     }
     const role =
@@ -286,21 +288,21 @@ function buildResponsesInput(
       if (myAttachments && myAttachments.length > 0) {
         const parts: ResponsesInputPart[] = []
         for (const segment of orderedMessageInputs(message, myAttachments)) {
-          if (segment.type === 'text') { parts.push({ type: 'input_text', text: segment.text }); continue }
+          if (segment.type === 'text') { parts.push(trackInput({ type: 'input_text', text: segment.text }, message, segment.partId)); continue }
           const attachment = segment.attachment
           if (attachment.mimeType === 'application/pdf') {
-            parts.push({ type: 'input_file', filename: 'document.pdf', file_data: `data:application/pdf;base64,${attachment.data.toString('base64')}` })
+            parts.push(trackInput({ type: 'input_file', filename: 'document.pdf', file_data: `data:application/pdf;base64,${attachment.data.toString('base64')}` }, message, segment.partId, attachment))
             continue
           }
           if (!attachment.mimeType.startsWith('image/')) continue
-          parts.push({
+          parts.push(trackInput({
             type: 'input_image',
             image_url: `data:${attachment.mimeType};base64,${attachment.data.toString('base64')}`,
-          })
+          }, message, segment.partId, attachment))
         }
         input.push({ role, content: parts })
       } else {
-        input.push({ role, content: message.content })
+        input.push(trackTextInput({ role, content: message.content }, message))
       }
     }
     for (const call of message.senseCalls ?? []) {
@@ -312,6 +314,7 @@ function buildResponsesInput(
         arguments: call.arguments,
       })
     }
+    for (const item of input.slice(first)) if (!('content' in item) || !Array.isArray(item.content)) trackTextInput(item, message)
   }
   return input
 }

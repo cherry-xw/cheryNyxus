@@ -3,6 +3,7 @@ import path from 'path'
 import yaml from 'js-yaml'
 import { randomUUID } from 'crypto'
 import { registerMessageAdapter, type LLMResponse } from '@/core/message/adapter'
+import { trackTextInput } from '@/core/message/inputOrigins.js'
 import {
   registerSenseAdapter,
   type Sense,
@@ -241,7 +242,7 @@ const mockMessageAdapterConfig = {
   thinking: (raw: MockResponse) => raw.thinking,
   extractStreamDelta: (chunk: MockStreamChunk) => chunk.content ?? '',
   extractStreamThinking: (chunk: MockStreamChunk) => chunk.thinking,
-  buildMessages: (history: LLMResponse[]) => history.filter((m) => !m.revoked), // P5b：mock 不解析 attachments，签名对齐接口忽略参数
+  buildMessages: (history: LLMResponse[]) => history.filter((m) => !m.revoked).map(message => trackTextInput(message, message)), // mock 不解析 attachments
 }
 
 // ========== Sense Adapter ==========

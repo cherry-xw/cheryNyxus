@@ -15,6 +15,7 @@ import type {
 import type { ZodType } from 'zod'
 import type { LLMResponse, LLMAttachment, BuildMessagesOptions } from '@/core/message/adapter'
 import { groupAttachmentsByMessage, orderedMessageInputs } from '@/core/message/adapter'
+import { trackInput, trackTextInput } from '@/core/message/inputOrigins.js'
 import { ClassifiedError } from '@/utils/error.js'
 import type { Sense, SenseCallData, SenseFunction } from '@/core/sense'
 import { buildBaseSenseFunction, supportsStrictToolSchema } from '@/core/sense/compiler/utils.js'
@@ -97,15 +98,15 @@ export function buildOpenAICompatibleMessages(
     if (myAttachments && myAttachments.length > 0) {
       const parts: ChatCompletionContentPart[] = []
       for (const segment of orderedMessageInputs(m, myAttachments)) {
-        if (segment.type === 'text') { parts.push({ type: 'text', text: segment.text }); continue }
+        if (segment.type === 'text') { parts.push(trackInput({ type: 'text', text: segment.text }, m, segment.partId)); continue }
         const att = segment.attachment
         if (att.mimeType.startsWith('image/')) {
-          parts.push({
+          parts.push(trackInput({
             type: 'image_url',
             image_url: {
               url: `data:${att.mimeType};base64,${att.data.toString('base64')}`,
             },
-          })
+          }, m, segment.partId, att))
         } else if (att.mimeType.startsWith('video/')) {
           // video_url 不是 SDK 标准类型，用强转
           parts.push({
@@ -134,6 +135,9 @@ export function buildOpenAICompatibleMessages(
   })
 
   // 发送前防御校验：tool result 与前置 assistant.tool_calls 必须配对，否则上游 400。
+  for (const [index, message] of messages.entries()) {
+    if (!Array.isArray(message.content)) trackTextInput(message, visible[index]!)
+  }
   return validateToolResultPairing(messages)
 }
 

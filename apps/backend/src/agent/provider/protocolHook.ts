@@ -129,6 +129,7 @@ export async function applyProtocolHook<T extends Record<string, unknown>>(
   })
   validateProtocolParameters(original, payload.body, protocol)
   await preflightModelInput(payload.body, options, protocol)
+  options?.sourceCall?.prepare(payload.body, protocol)
   return payload.body as T
 }
 

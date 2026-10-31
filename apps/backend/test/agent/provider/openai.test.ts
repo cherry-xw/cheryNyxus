@@ -8,6 +8,7 @@
  * - sense adapter：buildSenses(按参数规则设置 strict) / senseCalls(id 缺省 sense-${i}) / extractSenseCallDeltas
  * - LLM：chat / chatStream / thinking 选项 / model|url 缺失 throw
  */
+import { Buffer } from 'node:buffer'
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { registerOpenAIAdapter } from "@/agent/provider/openai.js";
 import { getLLMAdapter } from "@/core/llm/adapter.js";
@@ -51,6 +52,31 @@ vi.mock("openai", () => {
 });
 
 describe("OpenAI provider 注册", () => {
+  it('MiniMax QQ native vision serializer carries image_url bytes into intercepted transport without network', async () => {
+    registerOpenAIAdapter()
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: 'offline' } }] }), { headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const bytes = Buffer.from('synthetic image transport fixture')
+      const messages = getMessageAdapter('openai')!.buildMessages([{ id: 'qq-image', role: 'user', content: '前面这图讲什么的？', createdAt: 1, updateAt: 1 }], [{ messageId: 'qq-image', mimeType: 'image/png', data: bytes }])
+      await getLLMAdapter('openai')!.chat(messages, [], { model: 'MiniMax', url: 'https://offline.invalid/v1', key: 'synthetic', continuous: true, skipHooks: true })
+      const body = JSON.parse((fetchMock.mock.calls as unknown as Array<[string, RequestInit]>)[0]![1].body as string)
+      expect(body.messages[0].content).toContainEqual({ type: 'image_url', image_url: { url: `data:image/png;base64,${bytes.toString('base64')}` } })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    } finally { vi.unstubAllGlobals() }
+  })
+  it('continuous requests bypass SDK default deadline without changing endpoint or dropping cancellation',async()=>{
+    registerOpenAIAdapter()
+    const controller=new AbortController()
+    const fetch=vi.fn(async(_url: unknown, _init?: RequestInit)=>new Response(JSON.stringify({choices:[{message:{content:'late'}}]}),{headers:{'content-type':'application/json'}}))
+    vi.stubGlobal('fetch',fetch)
+    try {
+      await getLLMAdapter('openai')!.chat([],[],{model:'test',url:'https://example.test/v1',key:'synthetic',continuous:true,signal:controller.signal,skipHooks:true})
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(fetch.mock.calls[0]?.[1]?.signal).toBe(controller.signal)
+      expect(fetch.mock.calls[0]?.[0]).toBe('https://example.test/v1/chat/completions')
+    } finally {vi.unstubAllGlobals()}
+  })
   beforeEach(() => {
     vi.clearAllMocks();
   });

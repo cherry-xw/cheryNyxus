@@ -1,4 +1,5 @@
 import { Ollama } from 'ollama'
+import { trackTextInput } from '@/core/message/inputOrigins.js'
 import { applyProtocolHook } from './protocolHook.js'
 import { randomUUID } from 'crypto'
 import type { ChatResponse, ToolCall, Message } from 'ollama'
@@ -36,12 +37,12 @@ const ollamaMessageAdapterConfig = {
         // role（wait=true 子完成注入的角色回复，见 agent-pet.md §5.4）映射为 user：API 不识别 role；兼容旧 subagent
         const role =
           m.role === 'sense' ? 'tool' : m.role === 'subagent' || m.role === 'role' ? 'user' : m.role
-        return {
+        return trackTextInput({
           role,
           content,
           // Ollama Message 原生支持 thinking；仅 assistant 历史带回，避免把内部字段注入 user/tool 消息。
           ...(role === 'assistant' && m.thinking ? { thinking: m.thinking } : {}),
-        }
+        }, m)
       }) as Message[],
 }
 
@@ -116,7 +117,6 @@ const ollamaLLMAdapter: LLMAdapter = {
     }
     try {
       const client = createOllamaClient(options)
-      options?.observation?.start(model)
       const body = await applyProtocolHook(
         {
           model,
@@ -128,6 +128,7 @@ const ollamaLLMAdapter: LLMAdapter = {
         options,
         'ollama',
       )
+      options?.observation?.start(model)
       const abort = () => client.abort()
       options?.signal?.throwIfAborted()
       options?.signal?.addEventListener('abort', abort, { once: true })
@@ -164,7 +165,6 @@ const ollamaLLMAdapter: LLMAdapter = {
     }
     try {
       const client = createOllamaClient(options)
-      options?.observation?.start(model)
       const body = await applyProtocolHook(
         {
           model,
@@ -176,6 +176,7 @@ const ollamaLLMAdapter: LLMAdapter = {
         options,
         'ollama',
       )
+      options?.observation?.start(model)
       const abort = () => client.abort()
       options?.signal?.throwIfAborted()
       options?.signal?.addEventListener('abort', abort, { once: true })

@@ -36,11 +36,11 @@ const openaiLLMAdapter: LLMAdapter = {
     const msgArray = messages as ChatCompletionMessageParam[]
     await acquireRpm(options)
     const fullUrl = options?.fullUrl === true
-    if (fullUrl) {
-      // fullUrl=true：绕开 SDK（SDK 强制拼 /chat/completions），原生 fetch 直接请求用户填写的
-      // URL——实际请求 = 用户值本身，与 bigmodel/deepseek 的 fetch 路径一致（docs/backend/agent/provider.md）。
+    const continuous = options?.continuous === true || (options?.requestView?.identity.source === 'plugin' && options.requestView.identity.channel === 'qq')
+    if (fullUrl || continuous) {
+      // Continuous requests use fetch without the SDK's implicit deadline; preserve URL rules.
       return jsonRequest(
-        url,
+        fullUrl ? url : resolveProviderUrl('openai', url, { fullUrl: false, kind: 'chat' }) + '/chat/completions',
         {
           model,
           messages: msgArray,
@@ -86,10 +86,11 @@ const openaiLLMAdapter: LLMAdapter = {
     const msgArray = messages as ChatCompletionMessageParam[]
     await acquireRpm(options)
     const fullUrl = options?.fullUrl === true
-    if (fullUrl) {
+    const continuous = options?.continuous === true || (options?.requestView?.identity.source === 'plugin' && options.requestView.identity.channel === 'qq')
+    if (fullUrl || continuous) {
       // fullUrl=true：绕开 SDK，原生 SSE 直接请求用户填写的 URL（实际请求 = 用户值本身）
       return streamSSE(
-        url,
+        fullUrl ? url : resolveProviderUrl('openai', url, { fullUrl: false, kind: 'chat' }) + '/chat/completions',
         {
           model,
           messages: msgArray,

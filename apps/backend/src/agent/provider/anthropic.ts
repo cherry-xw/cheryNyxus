@@ -52,6 +52,7 @@ import {
 } from './fetchBase.js'
 import { acquireRpm } from './openaiCompat.js'
 import { applyProtocolHook } from './protocolHook.js'
+import { inputOrigins, trackInput, trackTextInput } from '@/core/message/inputOrigins.js'
 import { LlmProtocol } from '@chery/protocol'
 
 // ========== 常量 ==========
@@ -515,18 +516,23 @@ const anthropicMessageAdapterConfig = {
     const official = buildOptions?.anthropicOfficial === true
     const lastUser = [...normalized].reverse().find((m) => m.role === 'user')
     const attachmentsByMessage = groupAttachmentsByMessage(attachments, lastUser?.id)
-    const unmerged = normalized.map((m) =>
-      buildAnthropicMessage(m, attachmentsByMessage.get(m.id), {
+    const unmerged = normalized.map((m) => {
+      const message = buildAnthropicMessage(m, attachmentsByMessage.get(m.id), {
         official,
         includeReasoning: buildOptions?.reasoningHistory !== 'omit',
-      }),
-    )
+      })
+      if (Array.isArray(message.content)) for (const block of message.content) {
+        if (!inputOrigins(block).length) trackTextInput(block, m)
+      }
+      return message
+    })
     const messages: AnthropicMsg[] = []
-    for (const message of unmerged) {
+    for (const [index, message] of unmerged.entries()) {
       const previous = messages.at(-1)
       if (previous?.role === message.role) {
-        const blocks = (value: AnthropicMsg['content']): AnthropicContentBlock[] => typeof value === 'string' ? [{ type: 'text', text: value }] : value
-        previous.content = [...blocks(previous.content), ...blocks(message.content)]
+        const blocks = (value: AnthropicMsg['content'], source: LLMResponse): AnthropicContentBlock[] =>
+          typeof value === 'string' ? [trackTextInput({ type: 'text', text: value }, source)] : value
+        previous.content = [...blocks(previous.content, normalized[index - 1]!), ...blocks(message.content, normalized[index]!)]
       } else messages.push(message)
     }
     return { system, messages }
@@ -657,21 +663,21 @@ function buildAnthropicMessage(
   if (m.role === 'user' && attachments && attachments.length > 0) {
     const blocks: AnthropicContentBlock[] = []
     for (const segment of orderedMessageInputs(m, attachments)) {
-      if (segment.type === 'text') { blocks.push({ type: 'text', text: segment.text }); continue }
+      if (segment.type === 'text') { blocks.push(trackInput({ type: 'text', text: segment.text }, m, segment.partId)); continue }
       const att = segment.attachment
       if (att.mimeType === 'application/pdf') {
-        blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: att.data.toString('base64') } })
+        blocks.push(trackInput({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: att.data.toString('base64') } }, m, segment.partId, att))
         continue
       }
       if (att.mimeType.startsWith('image/')) {
-        blocks.push({
+        blocks.push(trackInput({
           type: 'image',
           source: {
             type: 'base64',
             media_type: att.mimeType,
             data: att.data.toString('base64'),
           },
-        })
+        }, m, segment.partId, att))
       }
       // video/audio：Anthropic 不原生支持 → chat.ts enrichMediaInputs 旧路径已文本转写
     }
