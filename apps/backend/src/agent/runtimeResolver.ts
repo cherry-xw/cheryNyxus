@@ -386,7 +386,9 @@ export class RuntimeResolver {
       const name = original.definition.function.name
       // shallow copy 隔离：supervisionLevel 写入不得污染全局 senseRegistry（多 chat 共享）
       const s: Sense<ZodType> = { ...original }
-      s.supervisionLevel = Math.max(supervisionLevel ?? config.global.supervision, s.supervisionLevel ?? 0) as SupervisionLevel
+      s.supervisionLevel = original.operationPolicy
+        ? Math.max(supervisionLevel ?? config.global.supervision, s.supervisionLevel ?? 0) as SupervisionLevel
+        : supervisionLevel ?? s.supervisionLevel ?? config.global.supervision
       if (original.operationPolicy) {
         const selection = operationSelections.get(name) ?? {}
         const keys = senseName === name ? original.operationPolicy.keys : [senseName]

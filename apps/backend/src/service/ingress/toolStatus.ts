@@ -10,7 +10,10 @@ export function ingressToolStatus(tools: readonly string[], security: CompiledRo
     const sense = getSense(base)
     const declared = sense?.operationPolicy?.keys
     const valid = !!sense && (selection === base || !!declared?.includes(selection))
-    const level = Math.max(configured === 'auto' ? SupervisionLevel.auto : configured === 'manual' ? SupervisionLevel.manual : configured === 'smart' ? SupervisionLevel.smart : defaultLevel, sense?.supervisionLevel ?? 0) as SupervisionLevel
+    const selectedLevel = configured === 'auto' ? SupervisionLevel.auto : configured === 'manual' ? SupervisionLevel.manual : configured === 'smart' ? SupervisionLevel.smart : undefined
+    const level = declared
+      ? Math.max(selectedLevel ?? defaultLevel, sense?.supervisionLevel ?? 0) as SupervisionLevel
+      : selectedLevel ?? sense?.supervisionLevel ?? defaultLevel
     const available = valid && getSenseOrigin(base)?.available?.() !== false
     for (const key of selection === base && declared ? declared : [selection]) {
       const prior = selections.get(key)

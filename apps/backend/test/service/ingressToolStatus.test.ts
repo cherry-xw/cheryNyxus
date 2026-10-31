@@ -40,4 +40,13 @@ describe('ingress capability status follows actual operation selections',()=>{
     register(SupervisionLevel.auto,()=>false)
     for(const tool of ['status_action.voice','status_action.other','missing'])expect(ingressToolStatus([tool],security(),SupervisionLevel.auto)[0]).toMatchObject({available:false,allowed:false,reason:'tool_unavailable'})
   })
+  it('preserves explicit then registered then global supervision for tools without operations',()=>{
+    for(const [name,level] of [['status_plain',SupervisionLevel.manual],['status_inherited',undefined]] as const){
+      releases.push(registerPluginSense({definition:{type:'function',function:{name,description:'fixture',parameters:{type:'object',properties:{}}}},supervisionLevel:level,
+        executor:{schema:z.object({}),execute:async()=>({status:'ok',content:'fixture'})}} as any,{source:'plugin'}))
+    }
+    expect(ingressToolStatus(['status_plain:auto'],security(),SupervisionLevel.manual)[0]).toMatchObject({available:true,allowed:true})
+    expect(ingressToolStatus(['status_plain'],security(),SupervisionLevel.auto)[0]).toMatchObject({allowed:false,reason:'role_ask'})
+    expect(ingressToolStatus(['status_inherited'],security(),SupervisionLevel.manual)[0]).toMatchObject({allowed:false,reason:'role_ask'})
+  })
 })

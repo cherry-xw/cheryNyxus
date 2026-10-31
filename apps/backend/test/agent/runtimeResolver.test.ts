@@ -14,6 +14,8 @@ import { RuntimeResolver, parseRuntimeSelection } from "@/agent/runtimeResolver.
 import { SupervisionLevel } from "@/core/config.js";
 import config from "@/utils/config.js";
 import { bootstrapForTests } from "./helpers/agentHarness.js";
+import { z } from 'zod';
+import { registerPluginSense } from '@/core/sense/senseRegistry.js';
 
 describe("parseRuntimeSelection", () => {
   it("合法 → 返回 selection", () => {
@@ -133,5 +135,25 @@ describe("RuntimeResolver.resolve", () => {
   it("builtSenses 数量 = senseTable 大小", () => {
     const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "mixed_confirm", mcpServers: [] });
     expect(r.builtSenses.length).toBe(r.senseTable.size);
+  });
+  it('keeps operation selections strict in either order without exposing other actions',()=>{
+    const schema=z.object({action:z.enum(['voice','reaction','poke'])}).strict();
+    const definition={type:'function' as const,function:{name:'runtime_action',description:'fixture',parameters:z.toJSONSchema(schema) as any}};
+    const release=registerPluginSense({definition,supervisionLevel:SupervisionLevel.auto,
+      operationPolicy:{keys:['runtime_action.voice','runtime_action.reaction','runtime_action.poke'],key:args=>`runtime_action.${args.action}`,
+        definition:keys=>({...definition,function:{...definition.function,parameters:z.toJSONSchema(z.object({action:z.enum(keys.map(key=>key.split('.')[1]!) as [string,...string[]])})) as any}})},
+      executor:{schema,execute:async()=>({status:'ok',content:'fixture'})}},{source:'plugin'});
+    try {
+      for(const entries of [['runtime_action.voice:auto','runtime_action.voice:manual','runtime_action.reaction:auto'],['runtime_action.reaction:auto','runtime_action.voice:manual','runtime_action.voice:auto']]){
+        config.sense_groups.__test_actions=entries;
+        const r=new RuntimeResolver().resolve({brain:'mock_content',senseGroup:'__test_actions',mcpServers:[]});
+        const tool=r.senseTable.get('runtime_action')!;
+        expect(tool.operation?.({action:'voice'})).toMatchObject({allowed:true,level:SupervisionLevel.manual});
+        expect(tool.operation?.({action:'reaction'})).toMatchObject({allowed:true,level:SupervisionLevel.auto});
+        expect(tool.operation?.({action:'poke'})).toMatchObject({allowed:false});
+        const parameters=r.builtSenses.find(tool=>tool.function.name==='runtime_action')?.function.parameters as any;
+        expect(new Set(parameters.properties.action.enum)).toEqual(new Set(['voice','reaction']));
+      }
+    } finally { release();delete config.sense_groups.__test_actions; }
   });
 });

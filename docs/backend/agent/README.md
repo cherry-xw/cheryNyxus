@@ -121,7 +121,7 @@ export class RuntimeResolver {
 
 **能力约束：** `brain.capabilities.toolCall !== false` 时必须选择非空 `senseGroup`；`toolCall:false` 时 `senseGroup` 必须为空且 `mcpServers` 必须为空，resolver 返回空 `builtSenses/senseTable`。生成/媒体类工具由自定义 sense 声明 `capabilities` 并提供（旧内置 `generate_image/video/audio` 已删除）。完整能力与媒体链见 [../model-capabilities.md](model-capabilities.md)。
 
-**监管等级优先级链**（[runtimeResolver.ts resolveSense](../../../apps/backend/src/agent/runtimeResolver.ts)）：
+**普通工具监管等级优先级链**（[runtimeResolver.ts resolveSense](../../../apps/backend/src/agent/runtimeResolver.ts)）：
 
 ```text
 感官组 ":level" 后缀覆盖（如 "execute_command:auto"）
@@ -134,6 +134,8 @@ global.supervision
 ```
 
 > ⚠ 代码用 `resolved.set(name, s)` 按 sense **函数名**去重，后组会**整体替换**前组的 Sense 实例（不只覆盖等级）。`shallow copy` 隔离写入：监管等级写入不得污染全局 `senseRegistry`（多 chat 共享）。
+
+声明`operationPolicy`的工具按动作选择：基础工具选择展开成全部动作，具体动作选择只开放所选动作；动作等级不低于工具声明的等级，同一动作被多次选择时取较严格值。动作选择不会改变其他普通工具的上述优先顺序。反例见`test/agent/runtimeResolver.test.ts`，静态能力显示的对应检查见`test/service/ingressToolStatus.test.ts`。
 
 ### AgentBuilder 三阶段
 
