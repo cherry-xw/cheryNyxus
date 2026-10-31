@@ -18,10 +18,10 @@ description: Use when the user explicitly @mentions the AI with a video URL (or 
 ### 第一步：优先检查群共享空间 / 个人空间的已沉淀脚本（节省 Token 与探测时间）
 在从头抓取 HTML 之前，**先检查是否已有针对该网站/域名的沉淀脚本**：
 1. **群聊场景**：
-   - 调用 `qq_group_memory_search` 搜索目标网站域名或关键词（如 `m3u8`、`下载脚本`、域名）；
-   - 或调用 `qq_group_read_file` 读取 `scripts/index.json` 或 `scripts/<domain>.mjs`。
+   - 调用 `qq_memory_search`，scope=local，搜索目标网站域名或关键词（如 `m3u8`、`下载脚本`、域名）；
+   - 或调用 `qq_file_read`，scope=group，读取 `scripts/index.json` 或 `scripts/<domain>.mjs`。
 2. **私聊场景**：
-   - 调用 `qq_read_file`（现有个人记忆由请求上下文提供） 查看个人 `scripts/` 目录。
+   - 调用 `qq_file_read`，scope=personal，读取已知个人 `scripts/` 文件；不猜目录内容。
 3. **直接复用**：如果已有现成解析/探测脚本，直接通过 `qq_container_exec` 调用该脚本，**无需重新抓取网页分析 DOM 结构**！
 
 ### 第二步：探测视频流与可用清晰度（Probe 阶段）
@@ -71,10 +71,10 @@ node "$QQ_SKILLS_SCRIPTS_DIR/video.mjs" download "<URL>" --format "<formatId>"
 只沉淀已经成功执行的方案。脚本参数化页面URL、清晰度、输出目录，记录适用域名、依赖版本、输入输出及最近验证方法；不得保存Cookie、Token、签名直链。创建或更新scripts/index.json作为索引；复用失败如实说明并重新验证，不把旧成功当作永久有效。容器中仅挂载当前身份文件到/workspace/files，不能访问其他群或其他用户。
 如果你在本次任务中针对某个特定网站编写了自定义 HTML 解析逻辑或下载命令：
 1. **将解析+下载流程封装成独立可复用脚本**：
-   - 群聊中调用 `qq_group_write_file` 写入 `scripts/<site-name>.mjs`（容器内路径自动映射为 `/workspace/files/scripts/<site-name>.mjs`）；
-   - 私聊中调用 `qq_write_file` 写入 `scripts/<site-name>.mjs`。
+   - 群聊中调用 `qq_file_write`，scope=group，写入 `scripts/<site-name>.mjs`（容器内路径自动映射为 `/workspace/files/scripts/<site-name>.mjs`）；
+   - 私聊中调用 `qq_file_write`，scope=personal，写入 `scripts/<site-name>.mjs`。写入须operationId，更新先读version。
 2. **写入记忆索引**：
-   - 群聊中调用 `qq_group_memory_manage` 记录一条群共享经验（指明站点域名、脚本路径 `scripts/<site-name>.mjs` 及调用参数）；
+   - 群聊中调用 `qq_memory_manage`，scope=local，记录有来源的共享经验（站点域名、脚本路径及调用参数）；
    - 下次群内再遇到同类链接，直接用 `qq_container_exec` 执行该脚本即可一步到位！
 
 ---
