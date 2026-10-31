@@ -340,7 +340,7 @@ export class SourceContextRepository {
       const ordinal = this.db.prepare('SELECT next_ordinal FROM source_conversations WHERE conversation_id=?').get(scope.conversationId) as { next_ordinal: number }
       const record = SourceRecordSchema.parse({ recordId: id('record'), conversationId: scope.conversationId, revision: 1,
         ingestOrdinal: ordinal.next_ordinal, sourceKey: `delivery:${data.eventId}`, origin: 'bot_delivery',
-        sender: { id: authority.selfId, name: 'AI助手' }, platformMessageIds: [...new Set(result.messageIds)],
+        sender: { id: authority.selfId, name: '我' }, platformMessageIds: [...new Set(result.messageIds)],
         receivedAt: this.now(), deliveryConfirmedAt: confirmedAt, parts, deliveryId: data.eventId })
       for (const alias of record.platformMessageIds) if (this.db.prepare('SELECT 1 FROM source_aliases WHERE conversation_id=? AND platform_message_id=?')
         .get(scope.conversationId, alias)) sourceContextError('SOURCE_CONFLICT')

@@ -58,4 +58,22 @@ describe('source history replaces display copies and preserves question outcomes
     expect(rendered).toContain('此消息已包含在较早摘要中，本次因明确引用提供原文。')
     expect(rendered).toContain('以前讨论过的方案')
   })
+  it('marks bot_delivery records as first-person self replies and normalizes legacy AI助手 sender names',()=>{
+    const f=sourceFixture();database=f.db
+    f.repo.recordDelivery(f.authority,f.scope.scopeId,{kind:'notification',type:'qq.reply.part',data:{selfId:'100',conversationType:'group',targetId:'999',requestId:'prev-req',eventId:'deliv-1',seq:1,partIndex:1,totalParts:1,text:'我之前说的那句话'}},
+      {eventId:'deliv-1',requestId:'prev-req',selfId:'100',conversationType:'group',targetId:'999',seq:1,status:'sent',messageIds:['888'],activity:true,terminal:true},10001)
+    const cur=f.receive('你刚才说的啥？',{handling:{kind:'queued',requestId:'req-self'}})
+    const snap=f.repo.freeze(f.authority,f.scope.scopeId,{requestId:'req-self',actorRecord:cur.record,inputRecords:[cur.record],
+      expectedSelectionRevision:f.repo.scope(f.authority,f.scope.scopeId).selectionRevision,
+      policy:{historyLimit:10,backgroundMaxAgeMs:100000,backgroundMaxChars:100000,qqConfigRevision:1}})
+    f.repo.ensureRun(f.authority,f.scope.scopeId,'req-self','run-self')
+    const sourceInput: SourceInput={kind:'source_snapshot',requestId:'req-self',turnId:'req-self',scopeId:f.scope.scopeId,snapshotId:snap.snapshotId,actorRecord:cur.record,inputRecords:[cur.record]}
+    const prepared=prepareSourceHistory(context(sourceInput),[message('system','system','rules'),{...message('anchor','user','display'),sourceInput}])
+    const rendered=prepared.history.map(m=>m.content).join('\n')
+    expect(rendered).toContain('"origin":"bot_delivery"')
+    expect(rendered).toContain('"isSelfReply":true')
+    expect(rendered).toContain('"speaker":"self"')
+    expect(rendered).toContain('"sender":{"id":"100","name":"我"}')
+    expect(rendered).toContain('请以第一人称“我”直接认领和承接')
+  })
 })
