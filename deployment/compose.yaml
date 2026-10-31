@@ -40,6 +40,7 @@ services:
       QQ_INGRESS_PAUSED: ${QQ_INGRESS_PAUSED:-1}
       CHERY_INGRESS_INSTALL_ROOT: /app/opt
       QQ_USER_FILES_ROOT: /app/user-files
+      QQ_SOURCE_FILES_ROOT: /app/source-files
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
@@ -56,6 +57,7 @@ services:
       - ${QQBOT_DATA_DIR:-./qqbot-data}/.chery:/app/apps/backend/.chery
       - ${QQBOT_DATA_DIR:-./qqbot-data}/data:/app/apps/backend/data
       - ${QQ_USER_FILES_DIR:-./user-files}:/app/user-files
+      - ${QQ_SOURCE_FILES_DIR:-./source-files}:/app/source-files
     networks: [backend]
     logging: *logging
     healthcheck:

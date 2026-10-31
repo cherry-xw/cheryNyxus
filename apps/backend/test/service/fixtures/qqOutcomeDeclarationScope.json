@@ -687,7 +687,7 @@
     "id": "D077",
     "file": "packages/protocol/src/fileServiceParams.ts",
     "auditLine": 19,
-    "declaration": "style: z.object({ style_type: z.enum(['\u6f2b\u753b', '\u5143\u6c14', '\u4e2d\u4e16\u7eaa', '\u6c34\u5f69']), style_weight: z.number().gt(0).max(1).optional() }).strict().optional(),",
+    "declaration": "style: z.object({ style_type: z.enum(['漫画', '元气', '中世纪', '水彩']), style_weight: z.number().gt(0).max(1).optional() }).strict().optional(),",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
     "sourceSha256": "18e03ffdacfe9309a80ef91c439f2235f873d1ff586f5f7943bdbdd8d7cb821d"
@@ -1257,16 +1257,16 @@
     "declaration": "export const MaintenanceDiagnosticSchema = z.object({ status: z.enum(['configured', 'not_configured', 'invalid']), code: z.enum(['MACHINE_CONFIG_INVALID']).optional() }).strict()",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "f9c9060711aa23a1e3e11b0e8e8666b83039148f1114f939e3520086ff78a0c6"
+    "sourceSha256": "10d041084fbbe9a82b55d8503ce5347ece16b630b0885875218126ded1ab6415"
   },
   {
     "id": "D141",
     "file": "packages/protocol/src/browserSession.ts",
     "auditLine": 11,
-    "declaration": "export const RelayClientStatusSchema = z.object({ protocolVersion: z.literal(2), instanceId: opaqueId, backendId, status: z.enum(['idle', 'connecting', 'online', 'backoff', 'stopped', 'error']), configVersion: revision, desiredRevision: z.string().min(1).max(128), appliedRevision: z.string().min(1).max(128).optional(), leaseId: opaqueId.optional(), error: z.string().max(512).optional(), updatedAt: z.string().datetime() }).strict().refine((v) => v.status !== 'online' || (!!v.leaseId && !!v.appliedRevision && v.appliedRevision === v.desiredRevision), 'Online requires applied lease')",
+    "declaration": "export const RelayClientStatusSchema = z.object({ protocolVersion: z.literal(3), instanceId: opaqueId, backendId, status: z.enum(['idle', 'connecting', 'online', 'backoff', 'stopped', 'error']), configVersion: revision, desiredRevision: z.string().min(1).max(128), appliedRevision: z.string().min(1).max(128).optional(), leaseId: opaqueId.optional(), leaseExpiresAt: z.string().datetime().optional(), error: z.string().max(512).optional(), updatedAt: z.string().datetime() }).strict().refine((v) => v.status !== 'online' || (!!v.leaseId && !!v.leaseExpiresAt && !!v.appliedRevision && v.appliedRevision === v.desiredRevision), 'Online requires applied lease and confirmed expiry')",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "f9c9060711aa23a1e3e11b0e8e8666b83039148f1114f939e3520086ff78a0c6"
+    "sourceSha256": "10d041084fbbe9a82b55d8503ce5347ece16b630b0885875218126ded1ab6415"
   },
   {
     "id": "D142",
@@ -1275,7 +1275,7 @@
     "declaration": "export const MachineMaintenanceSchema = z.object({ protocolVersion: z.literal(1), instanceId: z.string().min(1).max(128), protocolRange: z.object({ min: z.literal(1), max: z.literal(1) }).strict(), operations: z.array(z.enum(['relay.binding', 'relay.operation'])).max(2).refine((v) => new Set(v).size === v.length), listener: z.literal('local'), diagnostic: MaintenanceDiagnosticSchema.optional() }).strict()",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "f9c9060711aa23a1e3e11b0e8e8666b83039148f1114f939e3520086ff78a0c6"
+    "sourceSha256": "10d041084fbbe9a82b55d8503ce5347ece16b630b0885875218126ded1ab6415"
   },
   {
     "id": "D143",
@@ -1284,7 +1284,7 @@
     "declaration": "export const MachineRelayOperationSchema = z.object({ type: z.enum(['binding.cancel', 'binding.status', 'authorization.list', 'authorization.revoke', 'policy.get', 'policy.set']), input: z.record(z.string(), z.unknown()).default({}) }).strict().superRefine((value, ctx) => { const allowed = value.type === 'policy.set' ? ['publicDiscovery', 'remotePasswordEnabled'] : value.type.startsWith('binding.') ? ['bindingRequestId'] : value.type === 'authorization.revoke' ? ['bindingId'] : []; if (Object.keys(value.input).some((k) => !allowed.includes(k)) || allowed.some((k) => value.type === 'policy.set' ? typeof value.input[k] !== 'boolean' : typeof value.input[k] !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(value.input[k] as string))) ctx.addIssue({ code: 'custom', message: 'Invalid device operation input' }) })",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "f9c9060711aa23a1e3e11b0e8e8666b83039148f1114f939e3520086ff78a0c6"
+    "sourceSha256": "10d041084fbbe9a82b55d8503ce5347ece16b630b0885875218126ded1ab6415"
   },
   {
     "id": "D144",
@@ -1293,7 +1293,7 @@
     "declaration": "export const PublicAuthCapabilitiesSchema = z.object({ password: z.boolean(), oidc: z.boolean(), service: z.enum(['backend', 'relay']), csrfToken: opaqueId, trustedLocal: z.boolean().optional() }).strict()",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "f9c9060711aa23a1e3e11b0e8e8666b83039148f1114f939e3520086ff78a0c6"
+    "sourceSha256": "10d041084fbbe9a82b55d8503ce5347ece16b630b0885875218126ded1ab6415"
   },
   {
     "id": "D145",
@@ -1302,7 +1302,7 @@
     "declaration": "export const BrowserIdentitySchema = z.object({ subject: z.string().min(1).max(512), provider: z.enum(['password', 'oidc', 'local']), issuer: z.string().url().optional(), displayName: z.string().max(256).optional() }).strict()",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "f9c9060711aa23a1e3e11b0e8e8666b83039148f1114f939e3520086ff78a0c6"
+    "sourceSha256": "10d041084fbbe9a82b55d8503ce5347ece16b630b0885875218126ded1ab6415"
   },
   {
     "id": "D146",
@@ -1311,7 +1311,7 @@
     "declaration": "export const BrowserSessionSchema = z.object({ protocolVersion: z.literal(1), authenticated: z.literal(true), revision, mode: z.enum(['direct-password', 'relay-password', 'relay-oidc', 'trusted-local']), identity: BrowserIdentitySchema, target: BrowserTargetSchema.nullable(), expiresAt: z.string().datetime(), csrfToken: opaqueId }).strict()",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "f9c9060711aa23a1e3e11b0e8e8666b83039148f1114f939e3520086ff78a0c6"
+    "sourceSha256": "10d041084fbbe9a82b55d8503ce5347ece16b630b0885875218126ded1ab6415"
   },
   {
     "id": "D147",
@@ -1320,7 +1320,7 @@
     "declaration": "const RelayBindingRecordSchema = z.object({ requestId: z.string().min(16).max(128), backendId, displayName: z.string().min(1).max(256), publicKeyFingerprint: z.string().regex(/^[A-Za-z0-9_-]{43}$/), expiresAt: z.string().datetime(), status: z.enum(['pending', 'confirmed', 'expired', 'cancelled']), confirmationUrl: z.string().url(), confirmationCode: z.string().regex(/^[A-F0-9]{10}$/), confirmedIdentity: RelayStoredIdentitySchema.optional(), authorizationId: z.string().min(1).max(128).optional(), authorizationExpiresAt: z.string().datetime().optional() }).strict()",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "f9c9060711aa23a1e3e11b0e8e8666b83039148f1114f939e3520086ff78a0c6"
+    "sourceSha256": "10d041084fbbe9a82b55d8503ce5347ece16b630b0885875218126ded1ab6415"
   },
   {
     "id": "D148",
@@ -1329,7 +1329,7 @@
     "declaration": "const RelayAuthorizationRecordSchema = z.object({ publicKeyFingerprint: z.string().regex(/^[A-Za-z0-9_-]{43}$/), revision, bindingId: z.string().min(16).max(128), backendId, identity: RelayStoredIdentitySchema, status: z.enum(['pending', 'active', 'revoked', 'expired']), createdAt: z.string().datetime(), updatedAt: z.string().datetime(), expiresAt: z.string().datetime().optional(), revokedAt: z.string().datetime().optional() }).strict()",
     "scope": "outside-outcome-mapping",
     "verification": "enumerated only; settings values, memory, relay/auth and generation parameters are not run-outcome semantics",
-    "sourceSha256": "f9c9060711aa23a1e3e11b0e8e8666b83039148f1114f939e3520086ff78a0c6"
+    "sourceSha256": "10d041084fbbe9a82b55d8503ce5347ece16b630b0885875218126ded1ab6415"
   },
   {
     "id": "D149",
@@ -1347,7 +1347,7 @@
     "declaration": "state: z.enum(['queued', 'running', 'sending', 'completed', 'failed', 'paused', 'cancelled']),",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "0478035076abd4330e13e98507fd87a96153666e689316754e2deebe6f162386"
+    "sourceSha256": "2bc32853c1f8328412615b76259f5e2ba53ba44c462957a87e170b834d53a46b"
   },
   {
     "id": "D151",
@@ -1356,7 +1356,7 @@
     "declaration": "participation: z.enum(['reply', 'wait', 'end']).optional(),",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "0478035076abd4330e13e98507fd87a96153666e689316754e2deebe6f162386"
+    "sourceSha256": "2bc32853c1f8328412615b76259f5e2ba53ba44c462957a87e170b834d53a46b"
   },
   {
     "id": "D152",
@@ -1365,7 +1365,7 @@
     "declaration": "status: z.enum(['pending', 'inflight', 'sent', 'unknown', 'failed']),",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "0478035076abd4330e13e98507fd87a96153666e689316754e2deebe6f162386"
+    "sourceSha256": "2bc32853c1f8328412615b76259f5e2ba53ba44c462957a87e170b834d53a46b"
   },
   {
     "id": "D153",
@@ -1392,7 +1392,7 @@
     "declaration": "action: z.enum(['reply', 'wait', 'end']),",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "f76994d6403e1bf6c8ef9793409453f976cd42bfcd9d8753e5997912d8d6f503"
+    "sourceSha256": "d36c65e2e2001903518a6ff3da1ee9fb4393e64fc770473570535d716b528f3f"
   },
   {
     "id": "D156",
@@ -1401,7 +1401,7 @@
     "declaration": "scope: z.enum(['auto', 'group', 'personal']).default('auto'),",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "41c44517525abd65b480465ddd55407834e6ff7e55a1606ab8c37284c9a633ab"
+    "sourceSha256": "0142f3dbf8eb1b7eec11ff5be2448e617779c649d333d68fc6afd5759e5e5bd8"
   },
   {
     "id": "D157",
@@ -1410,7 +1410,7 @@
     "declaration": "export const replyActionSchema = z.discriminatedUnion('kind', [",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "24816cd40dc2110cc9db99151e2138de07d3626cd5cdd6083707f1d0399d9bb0"
+    "sourceSha256": "4caa2e3ba2c2e4d36a896bad48f03140692b1c48689b3e1e6065db05faeb5422"
   },
   {
     "id": "D158",
@@ -1437,7 +1437,7 @@
     "declaration": "type QQStatus,",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "6671b7117ed0391b51fd0e3627f0ac23b3f1bed9fb3fcf81b1a7b609b2dfa93f"
+    "sourceSha256": "0f61947b5298698d9820e0acf08b085cf1a188d81457bb6a4d55a1f302123d24"
   },
   {
     "id": "D161",
@@ -1482,7 +1482,7 @@
     "declaration": "type Status = {",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "b6c7aa57ddc4d4ef0544387a080111d5c84a7715bf0df5681d6255d5b9c9cd33"
+    "sourceSha256": "f981a736eb883ecf08bd2f01eb3f7d186bb141fe320a4432573e805a02fdd072"
   },
   {
     "id": "D166",
@@ -1491,6 +1491,6 @@
     "declaration": "outputs: Record<string, { status: 'unknown' | 'sent' | 'failed'; hash?: string; confirmation?: Record<string, unknown>; retryEvent?: WireNotification; retryAt?: number; reported?: boolean; progress?: boolean }>",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "b6c7aa57ddc4d4ef0544387a080111d5c84a7715bf0df5681d6255d5b9c9cd33"
+    "sourceSha256": "f981a736eb883ecf08bd2f01eb3f7d186bb141fe320a4432573e805a02fdd072"
   }
 ]

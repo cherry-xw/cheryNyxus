@@ -1,4 +1,4 @@
-# CheryNyxus Docker 入口
+# cheryNyxus Docker 入口
 
 本目录提供唯一 Backend 与独立 Web、Manager 的部署文件，不定义独立 Runtime QQPlugin 服务，不部署或修改 NapCat。
 
