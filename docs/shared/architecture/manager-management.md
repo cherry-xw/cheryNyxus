@@ -85,7 +85,7 @@ Manager 启动只读取自身监听、账号、OIDC 与本地设置，不检查�
 1. Manager 授权 Session、Origin，再把有限资源请求交给注册模块。
 2. 通过独立`server.auth.machine`和`/api/machine/login`取得短时机器凭据，建立无Origin/Cookie的管理WS；业务密码槽位不被机器轮换覆盖。浏览器业务请求不能指定后端目标或 RPC 方法。
 3. 能力服务获取完整核心配置，比对 revision，只修改目标资源，保留其他已声明配置字段。
-4. 核心 config.save v2 负责校验、秘密保存、持久保存和逐项应用。
+4. 核心 config.save v2 负责校验、秘密保存、持久保存和逐项应用；完成本轮可执行的采用尝试后读取最新状态返回。安全边界、需重启或采用失败仍按实际状态返回，不等待所有任务结束，也不将保存成功等同于全部生效。
 5. 同名回读后返回脱敏对象与核心保存/应用状态；共享角色不被简化预设编辑覆盖。
 
 设置包有限调用 config.preview、config.get、config.save、config.apply.status、brain.list、sense.list、sense.tools、utils.models、utils.modelRecommendation、prompts.preset.get/save、search.test/settings.get/settings.save；QQ管理使用[接入插件](ingress-plugins.md#qq-管理api)管理方法及 qq.memory.stats，不授权传输或任意代理方法。Manager 不加载核心 handler 在自己的进程中保存资源，也不从磁盘读写资源兜底。后端离线或认证失败时资源操作明确不可用；Manager 登录、状态与自身子进程管理仍可用。提交后断线不自动重试写入，须回读核实。版本2由已登记有限管理 route 和 ingress.management.call 分发，资源保存仍用上述核心公开管理能力，不改成包直接写配置。

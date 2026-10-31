@@ -35,7 +35,7 @@ SenseRuntimeContext.signal 接收当前 pipeline 的取消信号。运行器在�
 
 所有失败均返回固定结构化错误，不返回部分正文；取消、DNS、类型、大小及网络错误均 fail-closed。Transport 可在本地 fixture 测试注入，生产默认使用 Node HTTP 客户端。
 
-工具结果的observation使用结构化JSON，包含实际正文、URL、时间、截断及`publicEligible`；成功状态显式为`ok`。网页内容hash作为证据标识，不使用模型改写文字重建来源。公开资格要求匿名传输、无凭据查询参数且响应没有私有缓存或Cookie声明；无法确认时不供公共词义共享。证据保存和QQ学习由[QQ模块](../../../plugins/qq/README.md#网页证据与独立学习)负责，本模块不直接写记忆或重新抓取补证。
+工具结果的observation使用结构化JSON，包含实际正文、URL、时间、截断及`publicEligible`；成功状态显式为`ok`。网页内容hash作为证据标识，不使用模型改写文字重建来源。公开资格要求匿名传输、无凭据查询参数且响应没有私有缓存或Cookie声明；无法确认时不供公共词义共享。证据保存和QQ学习由QQ模块负责，本模块不直接写记忆或重新抓取补证；实现版本及验证边界见[QQ模块网页证据与独立学习](../../../plugins/qq/README.md#网页证据与独立学习)及[QQ后续审核清单](../../quality/verification/qq-safe-outcomes.md#5-qq-聊天理解工具学习与来源上下文日常跟进及维护清单)。
 
 生产 HTTP 客户端固定连接到已验证的 DNS 地址；自定义 lookup 在 Node 请求 `all: true` 时返回地址记录数组，单地址模式返回地址与实际 IPv4/IPv6 family，不重新解析 DNS，也不使用无效的 family 0。
 

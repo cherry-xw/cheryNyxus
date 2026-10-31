@@ -6,9 +6,7 @@
 
 ## 职责
 
-QQ 原任务归属及答案命令由 [`sourceTasks.ts`](../../../apps/backend/src/db/sourceTasks.ts) 维护，独立建表入口为 `sourceTaskSchema.ts`；原文、快照及工具过程仍由 `sourceContext.ts` 唯一保存，不另存第二份执行历史。任务自身的问题批决定等待，不使用会话全部未答问题推断当前任务状态；跨月库答案与主库快照分阶段补齐，全部一致才允许排队。对外约定见[QQ 原任务问答](../../shared/protocol/qqbot-plugin.md#qq-原任务问答)。
-
-QQ 来源保存的详细约定见[处理与数据细则](../../plan/conversation-observability-and-input/qq-context-contracts.md)，当前实现的离线结果与未完成验收见[验证记录](../../plan/conversation-observability-and-input/qq-context-verification.md)，不能视为部署可用。主库初始化入口为 `initSoulTables`，来源表与仓库由 `db/sourceContext.ts` 负责：原文、范围成员、收件、冻结快照、模型采用及摘要分别保存；删除 Core 会话不连带删除来源。仓库的授权由宿主产生，每次读写重新验证，不把正文中的身份、预设或路径当成许可；不新增自动来源清理。
+QQ 来源保存的主库初始化入口为 `initSoulTables`，来源表与仓库由 `db/sourceContext.ts` 负责：原文、范围成员、收件、冻结快照、模型采用及摘要分别保存；删除 Core 会话不连带删除来源。仓库的授权由宿主产生，每次读写重新验证，不把正文中的身份、预设或路径当成许可；不新增自动来源清理。离线与实测验证边界见[QQ 后续审核清单](../../quality/verification/qq-safe-outcomes.md#5-qq-聊天理解工具学习与来源上下文日常跟进及维护清单)。
 
 内部 QQ 来源输入在 `pending_inputs.source_input` 与月份库 `messages.source_input` 保存固定的 `SourceInput` 引用。正文仅供执行历史展示，模型输入按不可变快照读取来源；公共聊天请求不能提交该字段。恢复读取引用不授予执行权，也不允许新进程自动继续旧 QQ 前台任务。来源范围的 Core 绑定由已验证的宿主提交确定；资产仍检查当前范围和固定版本，Core 的文件授权不能替代来源许可。
 
@@ -22,7 +20,7 @@ QQ 来源保存的详细约定见[处理与数据细则](../../plan/conversation
 
 阅读身份同时区分 Manager 登录会话；分页只保存一份固定条目集合，后续位置引用该集合，不在每个游标里复制全文。生成回复以请求与正文摘要值固定保存，与真实发送原文分开；后续生成不改变已有正文引用。摘要维护通过 `source_summary_request_links` 登记其实际来源涉及的请求，尚未提交的操作也可只读查询，不能当作有效摘要头。离线用例为 `apps/backend/test/service/sourceManagement.test.ts`、`apps/backend/test/service/ingressApi2.test.ts` 与 `apps/manager/test/qqSources.test.ts`。
 
-来源维护使用独立的会话维护权限，不带成员执行身份。维护的模型准备版本和调用状态归属维护快照，不能推进用户采用轮次、调用业务工具或取得个人文件权限；只有本次维护实际成功提供的附件表示才可作为内容证据。维护进度由来源操作记录保存，阶段、失败和取消不把旧摘要头清除。实现与验证状态见[当前任务](../../plan/conversation-observability-and-input/README.md#依赖与恢复检查点)。
+来源维护使用独立的会话维护权限，不带成员执行身份。维护的模型准备版本和调用状态归属维护快照，不能推进用户采用轮次、调用业务工具或取得个人文件权限；只有本次维护实际成功提供的附件表示才可作为内容证据。维护进度由来源操作记录保存，阶段、失败和取消不把旧摘要头清除。实现与验证边界见[QQ 后续审核清单](../../quality/verification/qq-safe-outcomes.md#5-qq-聊天理解工具学习与来源上下文日常跟进及维护清单)。
 
 来源容量整理只从当前固定快照选择可整理的旧资料，不读取后来入站消息，不替换当前输入、明确引用和真实工具过程。QQ 完成群记忆保存及摘要候选后，Backend 创建候选子快照；最终请求通过预算和来源位置检查、获准调用时，才在调用登记事务中替换摘要头。准备失败或取消保持原摘要边界；原快照和过去采用版本始终不变。问答从该运行最近实际采用的后代快照继续，不能退回整理前的历史。请求内维护回调只在内存传递，不能通过公共聊天字段、保存的来源引用或管理读取取得。前台优先取消后可按操作版本恢复同一维护输入及已成功分块，不能把取消当作重新扫描全部资料的理由。离线用例为 `apps/backend/test/service/sourceCapacity.test.ts` 与 `sourceMaintenance.test.ts`。
 

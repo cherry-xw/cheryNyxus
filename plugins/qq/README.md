@@ -1,6 +1,6 @@
 # QQ 持续助手模块
 
-来源与模型输入详情为只读页面，入口是 `ui/QqSourceDetail.vue` / `ui/useQqSources.ts`；请求经宿主管理权限校验后由 Backend `db/sourceManagement.ts` 读取固定来源与采用记录。按模型步骤选择准备版本，目录、消息、正文及来源关系分别分页，刷新不自动换到新步骤。正文只作文字显示，不加载缩略图、远程链接或原始工具结果；401/403 清理受限缓存，关闭页面中止读取并释放正文，不取消业务。当前离线检查与未完成项见[验证记录](../../docs/plan/conversation-observability-and-input/qq-context-verification.md)，不代表实际页面验收或部署。
+来源与模型输入详情为只读页面，入口是 `ui/QqSourceDetail.vue` / `ui/useQqSources.ts`；请求经宿主管理权限校验后由 Backend `db/sourceManagement.ts` 读取固定来源与采用记录。按模型步骤选择准备版本，目录、消息、正文及来源关系分别分页，刷新不自动换到新步骤。正文只作文字显示，不加载缩略图、远程链接或原始工具结果；401/403 清理受限缓存，关闭页面中止读取并释放正文，不取消业务。验证与日常跟进边界见[后续审核清单](../../docs/quality/verification/qq-safe-outcomes.md#5-qq-聊天理解工具学习与来源上下文日常跟进及维护清单)。
 
 范围说明分别标识本地记录起点、未确认接收区间和已保存但未纳入所选输入的消息。没有已知来源的说明不展示查看按钮；有来源的查看操作定位到本任务的来源关系区域，加载、空结果和错误均在该处显示，返回时回到原按钮。跳转不切换模型步骤、不修改所选输入，迟到读取不把用户带离新的任务或选择；追加关系页不重新定位。
 
@@ -62,7 +62,7 @@ Core在实际工具完成处保存web_search/web_fetch的结构化结果，`sour
 
 ## 受权限约束的问题与暂停
 
-多任务保存、队尾调度与原任务恢复的正式约定见[QQ 原任务问答](../../docs/shared/protocol/qqbot-plugin.md#qq-原任务问答)。旧已取消等待状态仅在备份后的受控维护中同步结束，不执行、不发送。新版本实现、部署和验证状态见[当前任务](../../docs/plan/conversation-observability-and-input/README.md)。
+多任务保存、队尾调度与原任务恢复的正式约定见[QQ 原任务问答](../../docs/shared/protocol/qqbot-plugin.md#qq-原任务问答)。旧已取消等待状态仅在备份后的受控维护中同步结束，不执行、不发送。实现、部署和后续验证边界见[后续审核清单](../../docs/quality/verification/qq-safe-outcomes.md#5-qq-聊天理解工具学习与来源上下文日常跟进及维护清单)。
 
 ### 停写问题维护
 
@@ -86,7 +86,7 @@ npm run qq-question:maintain -- --db /absolute/data/soul.db --data-dir /absolute
 QQ 历次问题批保存在 `questionBatches`；答案保存、排队和启动各有独立状态。`QUESTION_ANSWER_SAVED` 表示答案可靠保存、等待轮到该任务，`QUESTION_RESUME_UNCONFIRMED` 表示保存或启动尚未确认，不能显示为正在执行。相同事件重投只核对既有命令或补齐已证明未完成的保存，不增加用户输入或执行次数。重启不自动执行旧任务。其它错误、审批及断线边界不由普通问答验收替代。
 
 
-等待反馈默认180秒（3分钟），可在Manager的QQ“消息处理与等待”分类调整。保持原周期发送机制：周期内按事件顺序收集工具图标及模型公开正文，一次合并发送；没有正文只发图标，无新内容使用等待文案。只在投递确认成功后登记已发送正文位置，最终回复不重复已确认正文；失败或未知不当作已发送。思考、工具参数和工具结果不进入等待消息，等待反馈不结束任务。
+等待反馈默认180秒（3分钟），可在Manager的QQ“消息处理与等待”分类调整。私聊保留周期等待文字及工具图标；群聊按周期对每条合并输入重复发送其确认表情，未确认表情则从既有列表选择并固定，不再发送周期等待文字或工具图标。群内公开正文、下载进度、问题及失败说明仍发送。只在投递确认成功后登记已发送正文位置，最终回复不重复已确认正文；失败或未知不当作已发送。思考、工具参数和工具结果不进入等待消息，等待反馈不结束任务。
 
 ## 下载进度通报
 
@@ -132,7 +132,7 @@ QQ 请求通过 `qq_information` 查询当前群或自己的私聊，不接受�
 
 `qq_history`的`source`默认retained，查询当前获准来源范围的已保存消息，不读Core展示副本，不代表QQ全部历史。首次固定接收上界，按`nextCursor`读更早页；长文字用`qq_source_text_read`连续读取。游标绑定当前成员、运行和权限版本。`source:'platform'`仅允许当前群NapCat近期历史。`qq_information`单独提供成员、资料、公告、群文件、精华、相册、荣誉及语音目录，不能跨群或查其他私聊。空值不推断，接口错误不自动重试。
 
-工具只在可信 QQ 请求中加入本次执行，沿用原有预设和允许名单；插件技能不会复制到全局技能目录。技能随启用的 QQ 安装包按请求身份提供，无须在每个角色上复制；角色若设置技能允许名单，仍须允许该插件技能。私聊名单为空仍不允许私聊，不为启用技能擅自添加用户。查询结果是资料而非指令，下载链接仅按需提供，不自动执行或公开文件。协议与验证见[QQ插件协议](../../docs/shared/protocol/qqbot-plugin.md)；定向测试为 `test/information.test.ts`、`test/informationWire.test.ts`，来源历史与正文读取用例见 `apps/backend/test/service/sourceHistory.test.ts`。离线结果见[验证记录](../../docs/plan/conversation-observability-and-input/qq-context-verification.md)，不代表已部署。
+工具只在可信 QQ 请求中加入本次执行，沿用原有预设和允许名单；插件技能不会复制到全局技能目录。技能随启用的 QQ 安装包按请求身份提供，无须在每个角色上复制；角色若设置技能允许名单，仍须允许该插件技能。私聊名单为空仍不允许私聊，不为启用技能擅自添加用户。查询结果是资料而非指令，下载链接仅按需提供，不自动执行或公开文件。协议与验证见[QQ插件协议](../../docs/shared/protocol/qqbot-plugin.md)；定向测试为 `test/information.test.ts`、`test/informationWire.test.ts`，来源历史与正文读取用例见 `apps/backend/test/service/sourceHistory.test.ts`。验证边界见[后续审核清单](../../docs/quality/verification/qq-safe-outcomes.md#5-qq-聊天理解工具学习与来源上下文日常跟进及维护清单)。
 
 ## 定时提醒与引用回复
 
@@ -187,7 +187,7 @@ QQ插件通过权限为0600的Unix Socket调用宿主受限控制器（`src/work
 
 原生表情结果由`platform/napcat-plugin/src/reactionResult.ts`解释：65002仅表示同一表情已经设置，不能宣称出现新的可见动作。设置目标已满足时不取消再添加、不换表情，其他失败仍保留。该解释同时用于初始确认和普通表情；旧失败不追溯改写。回归为`platform/napcat-plugin/test/reactionResult.test.ts`及适配器测试，部署状态另行核对。
 
-任务没有固定运行截止；默认每3分钟合并新工具图标及已有公开正文，否则发送等待提示，每轮重新安排直到实际执行结束。QQ断线不终止执行；反馈和正文分开投递，未发送旧反馈合并，恢复不刷屏。适配器和后端不以15秒或45秒结束在途发送；NapCat返回未知只影响投递记录，不中断正在执行的任务。服务重启是实际中断，不能宣称所有外部任务均可自动续跑。协议和测试见[持续运行与周期反馈](../../docs/shared/protocol/qqbot-plugin.md#持续运行与周期反馈)、`test/reliableDelivery.test.ts`。
+任务没有固定运行截止；群聊默认每3分钟向合并输入发送周期表情，私聊合并工具图标及已有公开正文、无新内容时发送等待提示。QQ断线不终止执行；反馈和正文分开投递，未发送旧周期反馈合并，恢复不刷屏。适配器和后端不以15秒或45秒结束在途发送；NapCat返回未知只影响投递记录，不中断正在执行的任务。服务重启是实际中断，不能宣称所有外部任务均可自动续跑。协议和测试见[持续运行与周期反馈](../../docs/shared/protocol/qqbot-plugin.md#持续运行与周期反馈)、`test/reliableDelivery.test.ts`。
 
 ## 固定图片重读配置
 

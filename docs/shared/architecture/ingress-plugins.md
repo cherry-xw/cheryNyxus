@@ -134,11 +134,11 @@ Backend 的停止等待通过宿主公开的 `context.lifecycle` 传递：只读
 
 ### 宿主认可的请求身份
 
-来源会话能力 `context.core.sourceConversations` 正在接入，尚未成为已部署能力。它独立保存来源、范围、收件及快照，使用宿主验证器限定 owner、入口、用途和当前范围；公共 Web 不接受 `sourceInput` 或身份句柄。来源后台接收不得假建执行任务，来源专用句柄不得提交模型。共享类型见 `packages/protocol/src/sourceContext.ts`，细则和实施状态见[QQ 来源方案](../../plan/conversation-observability-and-input/qq-context-contracts.md#31-受限接口)。
+来源会话能力 `context.core.sourceConversations` 独立保存来源、范围、收件及快照，使用宿主验证器限定 owner、入口、用途和当前范围；公共 Web 不接受 `sourceInput` 或身份句柄。来源后台接收不得假建执行任务，来源专用句柄不得提交模型。共享类型见 `packages/protocol/src/sourceContext.ts`，持久化约定见[DB 数据持久化模块](../../backend/db/README.md#职责)，验证边界见[QQ 后续审核清单](../../quality/verification/qq-safe-outcomes.md#5-qq-聊天理解工具学习与来源上下文日常跟进及维护清单)。
 
-来源摘要维护通过 `prepareSummary/summaryStatus/commitSummary` 使用单独的模块与连接授权，目标从已保存的 scope 归属推导，不使用群成员执行身份。准备结果固定来源集合、摘要头、附件元信息及真实发送事实；维护快照没有发起者，不可作为 `core.submit` 输入。提交须同时核验当前范围、原摘要头和前置记忆保存凭据；前台到达即取消本目标维护。容量整理同样保留父快照和当前输入，不改变旧采用记录。此路径正在实施，完整验证状态由任务入口维护。
+来源摘要维护通过 `prepareSummary/summaryStatus/commitSummary` 使用单独的模块与连接授权，目标从已保存的 scope 归属推导，不使用群成员执行身份。准备结果固定来源集合、摘要头、附件元信息及真实发送事实；维护快照没有发起者，不可作为 `core.submit` 输入。提交须同时核验当前范围、原摘要头和前置记忆保存凭据；前台到达即取消本目标维护。容量整理同样保留父快照和当前输入，不改变旧采用记录。
 
-来源历史读取使用 `sourceConversations.history/readText`，仅当前运行的执行身份可用。历史页固定来源范围、接收序号上界、权限版本与运行；文字引用和游标不是权限，不能在其他运行或管理查询中复用。返回的附件只有元信息，正文按 Unicode 字符分段，查询不导入远端消息、不推进用户轮次。QQ 工具的本地/平台选择及分页规则见[来源查询约定](../../plan/conversation-observability-and-input/qq-context-contracts.md#84-模型查询旧消息)；此能力仍在实施中，尚未完成离线验证。
+来源历史读取使用 `sourceConversations.history/readText`，仅当前运行的执行身份可用。历史页固定来源范围、接收序号上界、权限版本与运行；文字引用和游标不是权限，不能在其他运行或管理查询中复用。返回的附件只有元信息，正文按 Unicode 字符分段，查询不导入远端消息、不推进用户轮次。QQ 工具的本地/平台选择及分页规则见[QQ 只读信息查询](../../../plugins/qq/README.md#只读信息查询)。
 
 新增公开类型 `IngressIdentityHandle` 为宿主签发的不透明内存对象，不可 JSON 序列化为有效授权。其内部记录 owner、连接、入口、channel、verified subject 与有效代数，只能宿主构造。`context.identity.bind({connectionId,entryId,channel,eventId,subject})` 返回 `Promise<IngressIdentityHandle>`：验证当前包的 channelGrants、已认证连接的 credentialKind 和可信绑定信息，不以参数本身作为验证。subject 固定 `{selfId:string,userId:string,conversationType:'private'|'group',groupId?:string}`；private 禁止 groupId，group 必填；QQ 数字格式继续用现有 QQIdSchema。连接可信 selfId 必须由既有 NapCat Action 绑定完成，发送者/群信息只能来自这条连接已校验的事件。宿主绑定入口同时核对事件归属，插件不能在聊天正文中制造身份。
 

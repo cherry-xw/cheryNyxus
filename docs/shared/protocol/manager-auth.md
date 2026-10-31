@@ -53,6 +53,8 @@ OIDC 通过 issuer 的 discovery 获取真实 authorization/token/JWKS 地址；
 
 Cookie `chery-manager-session` 为随机不透明 ID，HttpOnly、SameSite=Lax、Path=/，HTTPS 设置 Secure；不设置 Domain。Session 仅存 Manager 内存，重启失效，登出后复制旧 Cookie 无效，恢复账号后旧 Cookie 无效。登录使请求所携带的旧 Session 立即失效，并始终签发新的随机 Session ID，不能固定 Session ID；同账号并发会话允许，由 `sessionTtlMs` 与容量上限共同约束。Session 上限 1000，待 OIDC 登录上限 200。
 
+来源只读分页另绑定 Session 内随机生成的非秘密阅读标识。Manager 在认证后通过内部控制连接传给 Backend，不转发 Cookie，不接受浏览器参数指定身份。阅读标识不返回 `/api/auth/me`，自身不能授权登录或来源读取；Backend 仍逐次检查控制连接、插件归属、请求、来源范围与权限版本。重新登录后不能沿用旧正文引用或分页位置。
+
 普通 API 的 POST/PUT/DELETE/PATCH（包括登录和登出）必须提供与当前请求 origin 完全相同、且可信的 `Origin`；拒绝缺失 Origin、跨来源 Origin 和 `Sec-Fetch-Site: cross-site`。JSON 请求限 16 KiB，错误 JSON 返回 400。认证及会话响应 no-store；无 CORS 放行。按 socket IP 限制密码/OIDC 登录启动，每分钟最多 10 次，并有全局每分钟 100 次上限；同时进行的密码校验最多 4 个。可信代理并不授权客户端自报 IP。
 
 已有 `/api/status`、`/api/connection`、进程 start/stop/restart、`/api/credentials` 及 relay 接口全部须 Session。Backend 不存在、机器凭据缺失/不一致/旧格式时，Manager 启动、账号登录与改密、独立 OIDC 及本地设置保存读回仍可用。启动不创建、迁移或写入 Backend 认证。`/api/credentials` 只返回脱敏诊断，读取失败返回 `consistent:false`、`source:unavailable`、`reason:credentials_unreadable`；不能授权维护。`/api/credentials/rotate` 返回409 `machine_credentials_deployment_required`，机器身份必须由部署者显式配置，不通过浏览器轮换。维护连接与失败契约见 [Manager 独立维护服务边界](../architecture/manager-management.md#独立维护服务边界)。
