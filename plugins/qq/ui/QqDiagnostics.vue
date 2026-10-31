@@ -32,7 +32,7 @@ onMounted(() => void readMemory())
   <section class="panel">
     <div class="section-heading"><h2>记忆文件统计</h2><button :disabled="memoryLoading" @click="readMemory">{{ memoryLoading ? '读取中…' : '刷新统计' }}</button></div>
     <p v-if="memoryError" class="error" role="alert">{{ memoryError }}</p>
-    <p class="muted">这里只统计私聊及旧群 / 群成员记忆文件，不包含新的群事实库。</p>
-    <dl><div v-for="item in memory" :key="item.scope"><dt>{{ ({personal: '私聊', group: '旧群记忆', member: '旧群成员记忆'} as Record<string,string>)[item.scope] }}</dt><dd>{{ item.files }} 个文件 · {{ item.count }} 条记忆<span v-if="item.unreadable"> · {{ item.unreadable }} 个文件无法读取</span></dd></div></dl>
+    <p class="muted">统计当前本地与公共记忆文件；详细内容和学习状态在「记忆与学习」查看。</p>
+    <dl><div v-for="item in memory" :key="item.scope"><dt>{{ ({local:'本群与私聊',public:'公共词义'} as Record<string,string>)[item.scope] }}</dt><dd>{{ item.files }} 个文件 · {{ item.count }} 条记忆<span v-if="item.unreadable"> · {{ item.unreadable }} 个文件无法读取</span></dd></div></dl>
   </section>
 </template>

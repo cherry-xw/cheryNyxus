@@ -4,13 +4,16 @@ import { useQq } from './useQq'
 import QqSettings from './QqSettings.vue'
 import QqRecords from './QqRecords.vue'
 import QqDiagnostics from './QqDiagnostics.vue'
+import QqKnowledge from './QqKnowledge.vue'
 import { applyLabel } from './qqPresentation'
 const controller = useQq()
 const { state, dirty, read, save, load } = controller
 const view = ref('settings')
-const views = [['settings', '设置'], ['queue', '队列'], ['history', '历史'], ['diagnostics', '连接与诊断']]
+const knowledgeDirty=ref(false)
+function switchView(next:string){if(next===view.value)return;if(knowledgeDirty.value&&!window.confirm('记忆修改尚未保存或结果未确认，离开前请核对。仍要离开吗？'))return;knowledgeDirty.value=false;view.value=next}
+const views = [['settings', '设置'], ['queue', '队列'], ['history', '历史'], ['knowledge','记忆与学习'], ['diagnostics', '连接与诊断']]
 const emit = defineEmits<{ dirty: [value: boolean] }>()
-watch(() => dirty.value || state.saving, value => {
+watch(() => dirty.value || state.saving || knowledgeDirty.value, value => {
   emit('dirty', value)
   if (window.parent !== window) window.parent.postMessage({ type: 'cheryNyxus:plugin-dirty', dirty: value }, window.location.origin)
 }, { immediate: true })
@@ -18,7 +21,7 @@ function discard() {
   if (!dirty.value || window.confirm('重新读取会丢弃未保存草稿，继续吗？')) void read(true)
 }
 function beforeUnload(event: BeforeUnloadEvent) {
-  if (dirty.value || state.saving) { event.preventDefault(); event.returnValue = '' }
+  if (dirty.value || state.saving || knowledgeDirty.value) { event.preventDefault(); event.returnValue = '' }
 }
 onMounted(() => { void load(); window.addEventListener('beforeunload', beforeUnload) })
 onUnmounted(() => {window.removeEventListener('beforeunload', beforeUnload);controller.dispose()})
@@ -28,7 +31,7 @@ onUnmounted(() => {window.removeEventListener('beforeunload', beforeUnload);cont
   <div class="qq-workspace">
     <div class="qq-toolbar">
       <div class="section-heading">
-        <nav aria-label="QQ 插件页面"><button v-for="item in views" :key="item[0]" type="button" :aria-pressed="view === item[0]" @click="view = item[0]">{{ item[1] }}</button></nav>
+        <nav aria-label="QQ 插件页面"><button v-for="item in views" :key="item[0]" type="button" :aria-pressed="view === item[0]" @click="switchView(item[0])">{{ item[1] }}</button></nav>
         <div class="qq-save-actions"><button type="button" :disabled="state.reading || state.saving" @click="discard">重新读取配置</button><button type="button" :disabled="!dirty || !state.ready || state.saving || state.reading || state.uncertain" @click="save">{{ state.saving ? '保存并核对中…' : '保存并回读确认' }}</button></div>
       </div>
       <p role="status">{{ dirty ? '有未保存草稿' : state.config ? '配置已回读' : '尚未读取配置' }} · {{ state.message }}<span v-if="state.apply"> · {{ applyLabel(state.apply.state) }}</span></p>
@@ -39,6 +42,7 @@ onUnmounted(() => {window.removeEventListener('beforeunload', beforeUnload);cont
     <section v-show="view === 'settings'" class="panel qq-view"><h2>QQ 设置</h2><QqSettings :controller="controller" /></section>
     <QqRecords v-for="kind in ['queue', 'history'] as const" v-show="view === kind" :key="kind" :kind="kind" :active="view === kind" :controller="controller" />
     <div v-if="view === 'diagnostics'" class="qq-view"><QqDiagnostics :controller="controller"><template #token><slot name="token" /></template></QqDiagnostics></div>
+    <QqKnowledge v-if="view === 'knowledge'" :targets="controller.targets.value" :active="view === 'knowledge'" @dirty="knowledgeDirty=$event" />
   </div>
 </template>
 
