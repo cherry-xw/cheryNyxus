@@ -58,9 +58,9 @@ QQ 包入口为 [`createPlugin`](../../../plugins/qq/src/index.ts)，清单为 [
 
 部署启动参数使用通用 `channelAuth`：显式提供 `credentialKind`、`header`、受限 token 和可选 `readyNotification`。QQ 通道的值由部署层注入，核心不读取 QQ 专用环境变量；QQ 暂停和个人文件目录由包读取。旧启动配置必须在受限部署任务中迁移，本实现不自动解除暂停。
 
-当前 QQ 包只接受当前配置、队列和记忆格式，不提供旧目录导入工具。已有文件不得由运行时猜测转换或清除。
+当前 QQ 包只接受来源状态版本 2、群记忆版本 3；正常运行不猜测转换旧文件。一次性转换由 [`migrateLegacyQQSources`](../../../apps/backend/src/service/ingress/sourceMigration.ts) 负责，操作要求见 [QQ 模块说明](../../../plugins/qq/README.md#旧来源转换)。可信原始输入优先于讨论副本，机器人消息仅从真实发送命令和回执还原；旧 Core 拼接正文与无覆盖证据的摘要不成为新模型来源。转换不能执行任务、发送 QQ 消息或调用模型。转换实现及中断恢复仍在离线核对，实际迁移未获授权。
 
-定向验证见 [`qqBusiness.test.ts`](../../../plugins/qq/test/qqBusiness.test.ts)、[`qqPluginWire.test.ts`](../../../apps/backend/test/service/qqPluginWire.test.ts) 和 [`qqProcessRestart.test.ts`](../../../apps/backend/test/service/qqProcessRestart.test.ts)。进程恢复测试先用 `pnpm exec vite build --config apps/backend/test/service/fixtures/qqRestart.vite.config.ts` 构建独立 worker；这些验证只证明离线行为，不证明真实 QQ 发送或部署完成。
+定向验证见 [`qqBusiness.test.ts`](../../../plugins/qq/test/qqBusiness.test.ts)、[`qqPluginWire.test.ts`](../../../apps/backend/test/service/qqPluginWire.test.ts) 和 [`qqProcessRestart.test.ts`](../../../apps/backend/test/service/qqProcessRestart.test.ts)。进程恢复测试通过 Node 与 tsx 启动独立的源码测试进程，不依赖预先构建的测试脚本；先构建 QQ 安装包，再运行测试。这些验证只证明离线行为，不证明真实 QQ 发送或部署完成。
 
 管理页面使用服务端 Session Cookie：HttpOnly、SameSite、Secure；支持基础登录、用户名密码和 Pocket ID OIDC。OIDC 使用 Authorization Code + PKCE、state、nonce、issuer/audience 校验；OIDC subject 必须绑定或命中管理员白名单。浏览器不保存密码或 OIDC token。
 

@@ -205,8 +205,16 @@ export function atomicJson(file: string, value: unknown): void {
 export function readState(file: string): State {
   safePath(file)
   if (!fs.existsSync(file)) return emptyState()
+  let raw: unknown
   try {
-    return parseStored(StateSchema, JSON.parse(fs.readFileSync(file, 'utf8')), 'state')
+    raw = JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch {
+    throw new Error('Invalid QQ plugin state')
+  }
+  if (typeof raw === 'object' && raw !== null && (raw as { schemaVersion?: unknown }).schemaVersion === 1)
+    throw new Error('Unsupported legacy QQ plugin state (schemaVersion 1); run the one-time source migration before starting')
+  try {
+    return parseStored(StateSchema, raw, 'state')
   } catch {
     // Corrupt queue state must isolate this plugin rather than drop deliveries.
     throw new Error('Invalid QQ plugin state')
