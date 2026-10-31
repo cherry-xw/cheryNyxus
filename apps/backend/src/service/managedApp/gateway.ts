@@ -80,7 +80,8 @@ export function createManagedAppGateway(client = new ControllerSocketClient()) {
       }
       if (isBusinessActivity(req.method ?? 'GET', route.suffix, String(req.headers['x-app-poll'] ?? ''))) void client.touchAppActivity({ userId: route.userId, appId: route.appId }).catch(() => {})
       const upstream = httpRequest({ hostname: ip, port: 3000, method: req.method, path: route.suffix, headers: forwardHeaders(req, route) }, response => {
-        const headers = { ...response.headers, 'x-accel-buffering': 'no', 'cache-control': 'no-cache, no-transform' }
+        const headers = { ...response.headers, 'x-accel-buffering': 'no',
+          'cache-control': `${response.headers['cache-control'] ?? 'no-cache'}, no-transform` }
         for (const key of Object.keys(headers)) if (hopHeaders.has(key) || String(response.headers.connection ?? '').toLowerCase().split(',').map(s => s.trim()).includes(key)) delete (headers as Record<string, unknown>)[key]
         delete headers['www-authenticate']
         const location = headers.location
