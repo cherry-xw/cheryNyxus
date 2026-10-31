@@ -519,14 +519,17 @@ export class IngressHost {
           return result
         },
         answerQuestions: async (input) => {
+          if (input.sourceCapacity !== undefined && typeof input.sourceCapacity !== 'function') throw ingressError('INVALID_PARAMS')
           requireActive()
           input = z.object({conversationKey:z.string().min(1).max(512),entryId:z.string().min(1),identity:z.custom<import('./api.js').IngressIdentityHandle>(),
-            runId:z.string().min(1).max(200),batchId:z.string().min(1).max(200),commandId:z.string().uuid(),signal:z.custom<AbortSignal>().optional(),
+             runId:z.string().min(1).max(200),batchId:z.string().min(1).max(200),commandId:z.string().uuid(),signal:z.custom<AbortSignal>().optional(),
+              sourceAnswers:z.object({snapshotId:z.string().min(1).max(256),records:z.array(z.object({questionId:z.string().min(1).max(200),record:SourceRecordRefSchema}).strict()).min(1).max(16)}).strict().optional(),
+              sourceCapacity:z.custom<import('./api.js').IngressSourceCapacity>(value=>typeof value==='function').optional(),
             answers:z.array(z.object({questionId:z.string().min(1).max(200),selectedLabels:z.array(z.string().max(1000)).max(4),freeText:z.string().max(20000).optional(),cancelled:z.boolean().optional()}).strict()).min(1).max(16)}).strict().parse(input)
           if (!core.answerQuestions || !active.entries.has(input.entryId) || !active.conversations.has(input.conversationKey)) throw ingressError('IDENTITY_REJECTED')
           const record = this.authority.validate(id, input.entryId, input.identity)
           const original = active.requests.get(input.runId)
-          if (record.purpose === 'source' || record.channel !== 'qq' || original?.channel !== 'qq' ||
+          if (record.purpose !== undefined || record.channel !== 'qq' || original?.channel !== 'qq' ||
             original.entryId !== input.entryId || !original.subject || ['selfId','userId','conversationType','groupId'].some(field => original.subject![field as keyof typeof original.subject] !== record.subject[field as keyof typeof record.subject])) throw ingressError('IDENTITY_REJECTED')
           const { conversationKey, identity, ...params } = input
           const requestIdentity = this.authority.project(id, input.entryId, identity)
@@ -538,6 +541,7 @@ export class IngressHost {
         },
         submit: async (input: Parameters<IngressContext['core']['submit']>[0]) => {
           requireActive()
+          if (input.sourceCapacity !== undefined && typeof input.sourceCapacity !== 'function') throw ingressError('INVALID_PARAMS')
           if (
             !active.entries.has(input.entryId) ||
             !active.conversations.has(input.conversationKey) ||
@@ -556,7 +560,7 @@ export class IngressHost {
           const record = identity
             ? this.authority.validate(id, params.entryId, identity)
             : undefined
-          if (record?.purpose === 'source') throw ingressError('IDENTITY_REJECTED')
+          if (record?.purpose !== undefined) throw ingressError('IDENTITY_REJECTED')
           const combined = signal
             ? AbortSignal.any([signal, active.controller.signal])
             : active.controller.signal

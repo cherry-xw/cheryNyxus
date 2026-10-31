@@ -19,6 +19,11 @@ import { z } from 'zod'
 import { buildFileServiceToolName } from '@chery/protocol'
 import { SupervisionLevel } from '@/core/config.js'
 import { buildOpenAICompatibleMessages } from '@/agent/provider/openaiCompat.js'
+import { SourceContextRepository } from '@/db/sourceContext.js'
+import { prepareSourceHistory } from '@/agent/middleware/sourceHistory.js'
+import { sourceModelStep } from '@/agent/middleware/sourceProjection.js'
+import type { SourceInput, SourcePart, SourceRecordRef } from '@chery/protocol'
+import { sourceAssetFixture } from '../helpers/sourceContext.js'
 
 const mocks = vi.hoisted(() => ({ read: vi.fn(), get: vi.fn(), blocked: new Set<string>() }))
 vi.mock('@/service/media/store.js', () => ({ getAssetStore: () => ({ get: mocks.get, read: mocks.read }) }))
@@ -47,6 +52,64 @@ beforeEach(async () => {
 afterEach(() => { deleteChat(chatId); config.files = structuredClone(previousFiles); vi.clearAllMocks() })
 
 describe('图片轮数与描述持久记录', () => {
+  it('counts a merged source batch once, never refreshes on tool/rebuild/cancel, and refreshes only a later explicit quote', async () => {
+    config.files!.imageContext = {}
+    sourceAssetFixture(getSoulDb(), 'photo', 'v-photo')
+    const repo=new SourceContextRepository(getSoulDb()),auth={ownerId:'image-owner',channel:'qq',selfId:'100',conversationType:'group' as const,
+      targetId:'999',actorId:'123',purpose:'execution' as const,validate(){}},scope=repo.applyScopes(auth,1,[{conversationType:'group',targetId:'999',presetId:'preset',qqContextEpoch:''}])[0]!
+    let event=0
+    const receive=(requestId:string,parts:SourcePart[],merged=false)=>{
+      const n=++event,recordAuth={...auth,purpose:'record' as const}
+      const receipt=repo.beginReceipt(recordAuth,scope.scopeId,{eventId:`event-${n}`,messageId:String(n),sender:{id:'123',name:'成员'},parts,
+        attachments:parts.filter(part=>part.type==='attachment').map(part=>({partId:part.partId,mediaKind:'image' as const}))})
+      if(receipt.state!=='pending')throw new Error('Missing receipt')
+      for(const attachment of repo.receiptContent(recordAuth,scope.scopeId,`event-${n}`).attachments){
+        getSoulDb().prepare('INSERT INTO source_asset_grants(asset_id,asset_version_id,scope_id,record_id,part_id,record_revision) VALUES (?,?,?,?,?,?)')
+          .run('photo','v-photo',scope.scopeId,receipt.record.recordId,attachment.source.partId,receipt.record.revision)
+        repo.updateAttachment(recordAuth,scope.scopeId,attachment.attachmentId,attachment.version,{kind:'stored',assetId:'photo',assetVersionId:'v-photo'})
+      }
+      repo.completeReceipt(recordAuth,receipt.receiptId,receipt.version,{kind:merged?'merged':'queued',requestId},scope.scopeId,`event-${n}`)
+      return receipt.record
+    }
+    const prepare=(requestId:string,refs:SourceRecordRef[])=>{
+      const snapshot=repo.freeze(auth,scope.scopeId,{requestId,actorRecord:refs[0]!,inputRecords:refs,
+        expectedSelectionRevision:repo.scope(auth,scope.scopeId).selectionRevision,
+        policy:{historyLimit:100,backgroundMaxAgeMs:100000,backgroundMaxChars:100000,qqConfigRevision:1}})
+      repo.ensureRun(auth,scope.scopeId,requestId,`run-${requestId}`)
+      const input:SourceInput={kind:'source_snapshot',requestId,turnId:requestId,scopeId:scope.scopeId,snapshotId:snapshot.snapshotId,actorRecord:refs[0]!,inputRecords:refs}
+      const context=ctx()
+      context.requestView={requestId:`run-${requestId}`,configRevision:'fixed',registryVersion:1,tools:[],
+        fileCapabilities:[{operation:'image.inspect',mode:'native',availability:'available',reason:'offline fixture',reasonCode:'native',configRevision:'fixed',inputConstraints:{}}],
+        identity:{source:'plugin',ownerId:auth.ownerId,entryId:'qq',channel:'qq',subject:{selfId:'100',userId:'123',conversationType:'group',groupId:'999'}}} as typeof context.requestView
+      context.requestExecution={sourceInput:input,validate(){}}
+      const render=()=>prepareSourceHistory(context,[{...msg('anchor'),sourceInput:input}])
+      return {context,render}
+    }
+    const admit=async(batch:ReturnType<typeof prepare>,start=true)=>{
+      const rendered=batch.render(),files=await planFileInputs(batch.context,rendered.history,rendered.source)
+      const step=sourceModelStep(batch.context,rendered.source!,files.history,files,{model:'test'},undefined,'initial')
+      step.boundary.prepare({model:'test',messages:buildOpenAICompatibleMessages(files.history,files.attachments)},'openai')
+      if(start){step.observation.start();step.observation.response({choices:[{message:{content:'ok'}}]});step.observation.finish('completed')}
+      else step.observation.finish('cancelled')
+      return files
+    }
+    const image=receive('first',[{type:'attachment',partId:'p0',attachmentId:'native'}]),text=receive('first',[{type:'text',partId:'p0',text:'同一批次的补充'}],true)
+    const first=prepare('first',[image,text])
+    expect((await admit(first)).attachments).toHaveLength(1)
+    expect((await admit(first)).attachments).toHaveLength(1)
+    expect(getSoulDb().prepare('SELECT COUNT(*) AS n FROM source_turns WHERE scope_id=?').get(scope.scopeId)).toEqual({n:1})
+    const next=prepare('second',[receive('second',[{type:'text',partId:'p0',text:'新的用户批次'}])])
+    expect((await admit(next,false)).attachments).toBeUndefined()
+    expect(getSoulDb().prepare('SELECT COUNT(*) AS n FROM source_turns WHERE scope_id=?').get(scope.scopeId)).toEqual({n:1})
+    expect((await admit(next)).attachments).toBeUndefined()
+    expect(getSoulDb().prepare('SELECT COUNT(*) AS n FROM source_turns WHERE scope_id=?').get(scope.scopeId)).toEqual({n:2})
+    const quoted=prepare('quote',[receive('quote',[{type:'reply',partId:'p0',platformMessageId:'1'},{type:'text',partId:'p1',text:'重新看这张图'}])])
+    expect((await admit(quoted)).attachments).toHaveLength(1)
+    const adopted=getSoulDb().prepare('SELECT first_turn_id,effective_turn_id FROM source_file_adoptions WHERE scope_id=?').get(scope.scopeId)
+    expect(adopted).toEqual({first_turn_id:'first',effective_turn_id:'quote'})
+    expect((await admit(quoted)).attachments).toHaveLength(1)
+    expect(getSoulDb().prepare('SELECT COUNT(*) AS n FROM source_turns WHERE scope_id=?').get(scope.scopeId)).toEqual({n:3})
+  })
   it('selected QQ history precedes current text, is adopted once and cannot refresh on rebuild or restart', async () => {
     const { prepareQQFileInputs } = await import('../../../../plugins/qq/src/assetMessages.js')
     config.files!.imageContext = {}

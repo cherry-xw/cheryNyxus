@@ -6,5 +6,7 @@ export const ingressExecution = new AsyncLocalStorage<{
   identity: Readonly<IngressRequestIdentity>
   signal?: AbortSignal
   execution?: { toolHistory: 'request'; retry: 'never' }
+  sourceInput?: import('@chery/protocol').SourceInput
+  sourceCapacity?: import('@chery/plugin-api').IngressSourceCapacity
   validate(): void
 }>()

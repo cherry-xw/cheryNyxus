@@ -63,10 +63,13 @@ export async function handleChatInputSubmit(
 ): Promise<ChatInputSubmitResponseData> {
   const normalized = normalizeMessageParts(data.content, data.parts)
   const resolvedContent = normalized.content
-  if (!resolvedContent.trim()) throw new Error('输入内容不能为空')
   if ('platformIdentity' in data || 'contextLimit' in data) throw new Error('IDENTITY_REJECTED')
-  ingressExecution.getStore()?.validate()
-  const claimed = claimRequest(data.commandId, Method.CHAT_INPUT_SUBMIT, data)
+  if ('sourceInput' in data) throw new Error('IDENTITY_REJECTED')
+  const execution = ingressExecution.getStore()
+  execution?.validate()
+  const sourceInput = execution?.sourceInput
+  if (!resolvedContent.trim() && !sourceInput) throw new Error('输入内容不能为空')
+  const claimed = claimRequest(data.commandId, Method.CHAT_INPUT_SUBMIT, sourceInput ? { ...data, sourceInput } : data)
   if (claimed.state === 'completed') {
     return JSON.parse(claimed.responseJson) as ChatInputSubmitResponseData
   }
@@ -115,6 +118,7 @@ export async function handleChatInputSubmit(
     const entry = agent.enqueueInput(prompt, {
       parts: normalized.parts,
       inputId,
+       sourceInput,
       messageId,
       clientMessageId: data.clientMessageId,
       commandId: data.commandId,
@@ -149,6 +153,7 @@ export async function handleChatInputSubmit(
       commandId: data.commandId,
       content: prompt,
       parts: normalized.parts,
+       sourceInput,
       queueSequence,
       state: running ? 'queued' : 'started',
       acceptedAt,

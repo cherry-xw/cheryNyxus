@@ -25,6 +25,7 @@ import {
   getChatMetadata,
 } from '@/db/chat.js'
 import { getMessages, parseMessageRow } from '@/db/message.js'
+import { SourceInputSchema } from '@chery/protocol'
 import { getConversationBranchByChat } from '@/db/conversationBranch.js'
 import { listPendingInputs, markPendingInputsConsumed } from '@/db/pendingInput.js'
 import { parseStoredParts, normalizeMessageParts } from '@/utils/messageParts.js'
@@ -275,6 +276,7 @@ export function loadHistory(chatId: string, epoch: ChatEpochRecord): LLMResponse
         role: parsed.role,
         content: parsed.content ?? '',
         parts: parsed.parts,
+        sourceInput: parsed.sourceInput,
         fileOperations: parsed.fileOperations,
         providerContinuation: parsed.providerContinuation,
         thinking: parsed.thinking,
@@ -514,6 +516,7 @@ function initializeChatRuntime(
       } else {
         builder.enqueueInput(pending.content, {
           parts: parseStoredParts(pending.parts),
+          sourceInput: pending.source_input ? SourceInputSchema.parse(JSON.parse(pending.source_input)) : undefined,
           inputId: pending.input_id,
           messageId: pending.message_id,
           clientMessageId: pending.client_message_id ?? undefined,

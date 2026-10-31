@@ -6,9 +6,8 @@ import { resolveBrainAdapterKey, resolveBrainProtocol } from '@/core/llm/routing
 import { resolveLlmProviderDefaultUrl } from '@chery/protocol'
 import { resolvePresetSelection } from '@/agent/runtimeResolver.js'
 import { getChat } from '@/db/chat.js'
-import { addMessage, getMessages, getRecentConversationMessages } from '@/db/message.js'
-import { clearChatRuntime } from '../chat/runtime.js'
-import { getActiveChatRunId } from '../chat/runtimeCache.js'
+import { chatRuntimes, getActiveChatRunId, getPendingChatInputs } from '../chat/runtimeCache.js'
+import { listPendingInputs } from '@/db/pendingInput.js'
 import { onPreparedChatEvent } from '@/db/delivery.js'
 import { handleChatCreate } from '../chat/handler.js'
 import { handleChatInputSubmit } from '../chat/input.js'
@@ -32,6 +31,15 @@ import { getSoulDb } from '@/db/index.js'
 import { ClassifiedError } from '@/utils/error.js'
 import path from 'node:path'
 import fs from 'node:fs'
+import { createSourceConversationsAdapter } from './sourceConversations.js'
+import { sourceExecutionAuthority, validateSourceInput } from './sourceExecution.js'
+import { sourceMaintenanceCall } from './sourceMaintenanceCall.js'
+import { ensureCurrentConfigRevision } from '@/service/config/revision.js'
+import { getSenseRegistryVersion } from '@/core/sense/senseRegistry.js'
+import { preflightModelInput } from '@/agent/provider/inputPreflight.js'
+import { ErrorId } from '@chery/protocol'
+import { SourceContextRepository, sourceContextError } from '@/db/sourceContext.js'
+import type { IngressQuestionAnswerResult } from './api.js'
 
 function conversationId(owner: string, key: string): string {
   if (!/^[a-z][a-z0-9-]{0,63}$/.test(owner) || !key || key.length > 512)
@@ -64,12 +72,12 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
       const latest = listLatestExecutionRuns(chatId).find(run => run.chatId === chatId)
       const saved = JSON.parse(getChat(chatId)?.metadata ?? '{}').managedRequestIdentity
       if (saved?.ownerId !== owner || !saved.subject || !input.requestIdentity.subject || ['selfId','userId','conversationType','groupId'].some(field => saved.subject[field] !== input.requestIdentity.subject![field as keyof typeof input.requestIdentity.subject])) throw new Error('Question identity rejected')
-      const fingerprint = { chatId, batchId: input.batchId, runId: input.runId, answers: input.answers }
+      const fingerprint = { chatId, batchId: input.batchId, runId: input.runId, answers: input.answers, sourceAnswers: input.sourceAnswers }
       const replay = getSoulDb().prepare('SELECT status,response_json FROM request_journal WHERE request_id=?').get(input.commandId) as {status:string;response_json:string}|undefined
       if (replay?.status === 'completed') {
         const check = claimRequest(input.commandId, 'ingress.question.answer', fingerprint)
         if (check.state !== 'completed') throw new Error('Question command conflict')
-        return JSON.parse(check.responseJson) as {runId:string}
+        return JSON.parse(check.responseJson) as IngressQuestionAnswerResult
       }
       const cancelled = listExecutionNodes(chatId).some(node => node.runId === input.runId && (node.termination as {code?:string} | undefined)?.code === 'user_abort')
       if (!interaction || interaction.chatId !== chatId || interaction.kind !== 'question_batch' || !(interaction.status === 'pending' || interaction.status === 'completed' && replay?.status === 'active') || cancelled ||
@@ -80,19 +88,34 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
         abandonRequest(input.commandId)
         claim = claimRequest(input.commandId, 'ingress.question.answer', fingerprint)
       }
-      if (claim.state === 'completed') return JSON.parse(claim.responseJson) as { runId: string }
+      if (claim.state === 'completed') return JSON.parse(claim.responseJson) as IngressQuestionAnswerResult
       if (claim.state !== 'new') throw new Error('Question command conflict')
       answering.add(input.commandId)
       try {
         input.validateIdentity()
+        let source: ReturnType<SourceContextRepository['answerSnapshot']> | undefined
+        if (input.sourceAnswers) {
+          const authority = sourceExecutionAuthority(input.requestIdentity, input.validateIdentity), repo = new SourceContextRepository(getSoulDb())
+          if (input.sourceAnswers.records.length !== input.answers.length) sourceContextError('INVALID_PARAMS')
+          source = repo.answerSnapshot(authority, { parentSnapshotId: input.sourceAnswers.snapshotId,
+            commandId: input.commandId, runId: input.runId, batchId: input.batchId,
+            answers: input.sourceAnswers.records.map(value => {
+              const answer = input.answers.find(answer => answer.questionId === value.questionId)
+              if (!answer?.freeText || answer.selectedLabels.length || answer.cancelled) sourceContextError('INVALID_PARAMS')
+              return { ...value, text: answer.freeText }
+            }) })
+          if (repo.scope(authority, source.snapshot.scopeId).coreBinding?.chatId !== chatId) sourceContextError('PERMISSION_DENIED')
+        }
         if (interaction.status === 'pending') await resolveQuestionBatch(chatId, input.batchId, input.answers)
         input.validateIdentity()
         const runId = input.runId
         await ingressExecution.run({ identity: immutableSnapshot(input.requestIdentity), signal: input.signal,
+          sourceInput: source?.sourceInput, sourceCapacity: input.sourceCapacity,
           execution: { toolHistory: 'request', retry: 'never' }, validate: input.validateIdentity },
           () => launchDetachedResume({ ...context(owner), requestId: runId }, chatId, runId))
-        completeRequest(input.commandId, { runId })
-        return { runId }
+        const result: IngressQuestionAnswerResult = { runId, ...(source ? { sourceSnapshot: source.snapshot } : {}) }
+        completeRequest(input.commandId, result)
+        return result
       } catch (error) { if (getInteraction(input.batchId)?.status === 'pending') abandonRequest(input.commandId); throw error }
       finally { answering.delete(input.commandId) }
     },
@@ -114,6 +137,8 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
     },
     restrictSources: async (owner,keys) => {
       const db=getSoulDb()
+      if (!keys.length && db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_owner_access'").get())
+        db.prepare('UPDATE source_owner_access SET enabled=0 WHERE owner_id=?').run(owner)
       if(!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_image_sources'").get())return
       const allowed=new Set(keys.map(key=>conversationId(owner,key)))
       db.transaction(()=>{
@@ -275,36 +300,38 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
         requestIdentity,
         signal,
         execution,
+        sourceInput,
+        sourceCapacity,
         validateIdentity,
         entryId: _entryId,
         ...params
       } = input
       validateIdentity()
-      return ingressExecution.run(
-        {
-          identity: immutableSnapshot(requestIdentity),
-          signal,
-          execution,
-          validate: validateIdentity,
-        },
-        () => handleChatInputSubmit(context(owner), { ...params, chatId }),
-      )
-    },
-    recentConversationMessages: async (owner, key, count) => JSON.stringify(getRecentConversationMessages(requireOwned(owner, key), count)),
-    conversationHistory: async (owner, key) => {
-      const messages = getMessages(requireOwned(owner, key)).filter(m => !m.revoked && !m.model_excluded)
-      let boundary = -1
-      for (let i = 0; i < messages.length; i++) if (messages[i]!.context_compaction) boundary = i
-      const selected = boundary >= 0 ? messages.slice(boundary) : messages
-      const text = JSON.stringify(selected.map(m => ({ id: m.id, role: m.role, content: m.content, time: m.created_at })))
-      if (text.length > 180000) throw new Error('Discussion history exceeds maintenance budget; original history retained')
-      return text
-    },
-    commitSummary: async (owner, key, summary) => {
-      const chatId = requireOwned(owner, key)
-      if (!summary.trim() || summary.length > 12000 || getActiveChatRunId(chatId)) throw new Error('Summary commit requires an idle conversation and validated text')
-      addMessage(randomUUID(), chatId, { role: 'assistant', content: summary, contextCompaction: true })
-      clearChatRuntime(chatId)
+      if (sourceInput) {
+        const source = validateSourceInput(sourceInput, sourceExecutionAuthority(requestIdentity, validateIdentity))
+        const chat = getChat(chatId)!
+        if (!chat.active_epoch_id) throw new Error('SOURCE_CONTEXT_UNAVAILABLE')
+        source.repo.bindCore(sourceExecutionAuthority(requestIdentity, validateIdentity), sourceInput.scopeId,
+          { chatId, epochId: chat.active_epoch_id })
+      }
+      submitting.set(chatId, (submitting.get(chatId) ?? 0) + 1)
+      try {
+        return await ingressExecution.run(
+          {
+            identity: immutableSnapshot(requestIdentity),
+            signal,
+            execution,
+            sourceInput,
+            sourceCapacity,
+            validate: validateIdentity,
+          },
+          () => handleChatInputSubmit(context(owner), { ...params, chatId }),
+        )
+      } finally {
+        const count = submitting.get(chatId)! - 1
+        if (count) submitting.set(chatId, count)
+        else submitting.delete(chatId)
+      }
     },
     abort: async (owner, key) => {
       await handleChatAbort(context(owner), { chatId: requireOwned(owner, key) })

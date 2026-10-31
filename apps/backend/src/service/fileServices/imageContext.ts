@@ -117,61 +117,102 @@ export function requestImageRead(chatId: string, messageId: string, refs: ImageR
 }
 
 export interface ImageTurnView {
+  sourceScopeId?: string
+  sourceTurnId?: string
+  sourcePositions?: Record<string, { recordId: string; revision: number; partIds: Record<string, string> }>
   ordinal: number
-  turns: Array<{ id: string; ordinal: number }>
+  turns: Array<{ id: string; ordinal: number; turnId?: string }>
   activeOrdinals: number[]
   images: Array<{ part: MessageAssetPart; ordinal: number }>
   requested: MessageAssetPart[]
+  requestedMessageIds?: string[]
   requestSources?: Record<string, string>
 }
 
 /** Read-only preparation. Pending/new user turns are committed only at a provider request boundary. */
 export function imageTurnView(chatId: string, history: LLMResponse[]): ImageTurnView {
   const access = fileAccessForChat(chatId)
-  const rows = db().prepare('SELECT message_id,ordinal FROM image_context_turns WHERE chat_id=? ORDER BY ordinal').all(chatId) as Array<{ message_id: string; ordinal: number }>
+  const scopeIds = [...new Set(history.flatMap(message => message.sourceRecord ? [message.sourceRecord.scopeId] : []))]
+  if (scopeIds.length > 1) throw new Error('SOURCE_CONFLICT')
+  const scopeId = scopeIds[0]
+  const currentSource = history.findLast(message => message.sourceRecord?.origin === 'current')?.sourceRecord
+  if (scopeId && !currentSource) throw new Error('SOURCE_CONTEXT_UNAVAILABLE')
+  const rows = (scopeId
+    ? db().prepare('SELECT turn_id AS message_id,ordinal FROM source_turns WHERE scope_id=? ORDER BY ordinal').all(scopeId)
+    : db().prepare('SELECT message_id,ordinal FROM image_context_turns WHERE chat_id=? ORDER BY ordinal').all(chatId)) as Array<{ message_id: string; ordinal: number }>
   const known = new Map(rows.map(row => [row.message_id, row.ordinal]))
   let ordinal = rows.at(-1)?.ordinal ?? 0
   const turns: ImageTurnView['turns'] = []
   for (const message of history) {
     if (message.role !== 'user' || message.ephemeral || message.revoked || message.modelExcluded) continue
-    const value = known.get(message.id) ?? ++ordinal
-    known.set(message.id, value)
-    turns.push({ id: message.id, ordinal: value })
+    // Source background, summary and tool-result renderings are not new user turns.
+    if (scopeId && message.sourceRecord?.origin !== 'current') continue
+    const turnId = message.sourceRecord?.turnId ?? message.id
+    const value = known.get(turnId) ?? ++ordinal
+    known.set(turnId, value)
+    turns.push({ id: message.id, ordinal: value, turnId })
   }
   const latest = Math.max(ordinal, ...turns.map(turn => turn.ordinal))
   // Already adopted turns remain counted even if later hidden/revoked; only unadopted ones are skipped.
   const activeOrdinals = [...new Set([...rows.map(row => row.ordinal), ...turns.map(turn => turn.ordinal)])]
-  const images = (db().prepare('SELECT ordinal,part_json,source_message_id FROM image_context_reads WHERE chat_id=? AND owner_id=? ORDER BY ordinal DESC')
-    .all(chatId, access.ownerId) as Array<{ ordinal: number; part_json: string; source_message_id?: string }>).filter(row => {
+  const images = ((scopeId
+    ? db().prepare(`SELECT t.ordinal,a.part_json,a.source_message_id FROM source_file_adoptions a
+        JOIN source_turns t ON t.scope_id=a.scope_id AND t.turn_id=a.effective_turn_id
+        WHERE a.scope_id=? AND a.owner_id=? ORDER BY t.ordinal DESC`).all(scopeId, access.ownerId)
+    : db().prepare('SELECT ordinal,part_json,source_message_id FROM image_context_reads WHERE chat_id=? AND owner_id=? ORDER BY ordinal DESC')
+        .all(chatId, access.ownerId)) as Array<{ ordinal: number; part_json: string; source_message_id?: string }>).filter(row => {
       if (!row.source_message_id) return true
       const source = getChatMonthlyDb(chatId)?.prepare('SELECT revoked,model_excluded FROM messages WHERE id=? AND chat_id=?').get(row.source_message_id, chatId) as { revoked?: number; model_excluded?: number } | undefined
       return !source?.revoked && !source?.model_excluded && !history.some(message => message.id === row.source_message_id && (message.revoked || message.modelExcluded))
     }).map(row => ({ ordinal: row.ordinal, part: JSON.parse(row.part_json) as MessageAssetPart }))
   const visible = new Set(history.filter(message => !message.revoked && !message.modelExcluded && message.role === 'sense' && message.content.includes('image_read_prepared')).map(message => message.id))
   const requestSources: Record<string, string> = {}
-  const requested = (db().prepare('SELECT message_id,part_json FROM image_context_requests WHERE chat_id=? AND owner_id=? AND consumed=0')
-    .all(chatId, access.ownerId) as Array<{ message_id: string; part_json: string }>).filter(row => visible.has(row.message_id)).flatMap(row => {
+  const requestRows = (db().prepare('SELECT message_id,part_json FROM image_context_requests WHERE chat_id=? AND owner_id=? AND consumed=0')
+    .all(chatId, access.ownerId) as Array<{ message_id: string; part_json: string }>).filter(row => visible.has(row.message_id))
+  const requested = requestRows.flatMap(row => {
       const refs = JSON.parse(row.part_json) as MessageAssetPart[]
       for (const ref of refs) requestSources[imageKey(ref)] = row.message_id
       return refs
     })
-  return { ordinal: latest, turns, activeOrdinals, images, requested, requestSources }
+  return { ordinal: latest, turns, activeOrdinals, images, requested, requestSources, requestedMessageIds: requestRows.map(row => row.message_id),
+    ...(scopeId ? { sourceScopeId: scopeId, sourceTurnId: currentSource!.turnId,
+      sourcePositions: Object.fromEntries(history.flatMap(message => message.sourceRecord ? [[message.id, {
+        recordId: message.sourceRecord.recordId, revision: message.sourceRecord.revision, partIds: message.sourcePartIds ?? {},
+      }]] : [])) } : {}) }
 }
 
-export function commitImageInputs(chatId: string, view: ImageTurnView, images: Array<{ part: MessageAssetPart; refresh: boolean; ordinal?: number; sourceMessageId?: string }>): void {
+export function commitImageInputs(chatId: string, view: ImageTurnView, images: Array<{ part: MessageAssetPart; refresh: boolean; ordinal?: number; sourceMessageId?: string; sourcePosition?: NonNullable<ImageTurnView['sourcePositions']>[string] }>): void {
   const access = fileAccessForChat(chatId)
   const database = db()
   database.transaction(() => {
-    for (const turn of view.turns) database.prepare('INSERT OR IGNORE INTO image_context_turns VALUES (?,?,?)').run(chatId, turn.id, turn.ordinal)
-    for (const { part, refresh, ordinal, sourceMessageId } of images) {
+    if (view.sourceScopeId) {
+      const turn = database.prepare('SELECT ordinal FROM source_turns WHERE scope_id=? AND turn_id=?').get(view.sourceScopeId, view.sourceTurnId) as { ordinal: number } | undefined
+      if (!turn || turn.ordinal !== view.ordinal) throw new Error('SOURCE_CONFLICT')
+    } else for (const turn of view.turns) database.prepare('INSERT OR IGNORE INTO image_context_turns VALUES (?,?,?)').run(chatId, turn.turnId ?? turn.id, turn.ordinal)
+    for (const { part, refresh, ordinal, sourceMessageId, sourcePosition } of images) {
       getAssetStore().get(part.assetId, access, part.assetVersionId)
-      database.prepare(`INSERT OR ${refresh ? 'REPLACE' : 'IGNORE'} INTO image_context_reads VALUES (?,?,?,?,?,?,?)`)
-        .run(chatId, access.ownerId, part.assetId, part.assetVersionId, refresh ? view.ordinal : ordinal ?? view.ordinal, JSON.stringify(part), sourceMessageId ?? null)
+      if (view.sourceScopeId) {
+        database.prepare(`INSERT INTO source_file_adoptions
+          (scope_id,owner_id,asset_id,asset_version_id,first_turn_id,effective_turn_id,part_json,source_message_id)
+          VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(scope_id,owner_id,asset_id,asset_version_id) DO NOTHING`)
+          .run(view.sourceScopeId, access.ownerId, part.assetId, part.assetVersionId, view.sourceTurnId, view.sourceTurnId, JSON.stringify(part), sourceMessageId ?? null)
+        if (refresh) database.prepare(`UPDATE source_file_adoptions SET effective_turn_id=?,part_json=?,source_message_id=?
+          WHERE scope_id=? AND owner_id=? AND asset_id=? AND asset_version_id=?`)
+          .run(view.sourceTurnId, JSON.stringify(part), sourceMessageId ?? null, view.sourceScopeId, access.ownerId, part.assetId, part.assetVersionId)
+        const position = sourcePosition ?? (sourceMessageId ? view.sourcePositions?.[sourceMessageId] : undefined)
+        const partId = position?.partIds[part.partId]
+        if (position && partId) database.prepare(`INSERT OR IGNORE INTO source_file_positions
+          (scope_id,record_id,record_revision,part_id,asset_id,asset_version_id,first_turn_id) VALUES (?,?,?,?,?,?,?)`)
+          .run(view.sourceScopeId, position.recordId, position.revision, partId, part.assetId, part.assetVersionId, view.sourceTurnId)
+      } else database.prepare(`INSERT OR ${refresh ? 'REPLACE' : 'IGNORE'} INTO image_context_reads VALUES (?,?,?,?,?,?,?)`)
+          .run(chatId, access.ownerId, part.assetId, part.assetVersionId, refresh ? view.ordinal : ordinal ?? view.ordinal, JSON.stringify(part), sourceMessageId ?? null)
     }
     // Consume only the exact explicit reads included in this request.
     const requested = new Set(images.filter(item => item.refresh).map(item => imageKey(item.part)))
     const rows = database.prepare('SELECT message_id,part_json FROM image_context_requests WHERE chat_id=? AND owner_id=? AND consumed=0').all(chatId, access.ownerId) as Array<{ message_id: string; part_json: string }>
-    for (const row of rows) if ((JSON.parse(row.part_json) as MessageAssetPart[]).every(part => requested.has(imageKey(part)))) database.prepare('UPDATE image_context_requests SET consumed=1 WHERE chat_id=? AND message_id=?').run(chatId, row.message_id)
+    for (const row of rows) if (view.requestedMessageIds?.includes(row.message_id) &&
+      (JSON.parse(row.part_json) as MessageAssetPart[]).every(part => requested.has(imageKey(part))))
+      database.prepare('UPDATE image_context_requests SET consumed=1 WHERE chat_id=? AND message_id=?').run(chatId, row.message_id)
   })()
 }
 
