@@ -14,14 +14,14 @@ export function identifyFile(body: Buffer, declared: string): { mimeType: string
   else if (['GIF87a', 'GIF89a'].includes(body.subarray(0, 6).toString('ascii'))) detected = 'image/gif'
   else if (body.subarray(0, 4).toString() === 'RIFF' && body.subarray(8, 12).toString() === 'WEBP') detected = 'image/webp'
   else if (body.subarray(0, 5).toString() === '%PDF-') detected = 'application/pdf'
-  else if (body.subarray(0, 4).equals(Buffer.from([80, 75, 3, 4]))) detected = 'application/zip'
+  else if (body[0] === 80 && body[1] === 75 && ((body[2] === 3 && body[3] === 4) || (body[2] === 5 && body[3] === 6))) detected = 'application/zip'
   else if (body.subarray(0, 4).toString() === 'RIFF' && body.subarray(8, 12).toString() === 'WAVE') detected = 'audio/wav'
   else if (body.subarray(0, 4).toString() === 'OggS') detected = mime.startsWith('audio/') ? mime : 'audio/ogg'
   else if (body.subarray(0, 3).toString() === 'ID3') detected = 'audio/mpeg'
   const officeZip = detected === 'application/zip' && mime.startsWith('application/vnd.openxmlformats-officedocument.')
   if (detected && mime !== 'application/octet-stream' && detected !== mime && !officeZip)
     throw new Error('声明的文件格式与文件内容不一致')
-  if (!detected && ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'].includes(mime))
+  if (!detected && ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'application/zip'].includes(mime))
     throw new Error('无法识别声明的文件格式')
   const mimeType = officeZip ? mime : detected ?? mime
   const kind: AssetKind = mimeType.startsWith('image/') && !!detected ? 'image'
