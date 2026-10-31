@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getSoulDb } from '@/db/index.js'
-import { createChat, getChat } from '@/db/chat.js'
-import { ensureActiveChatEpoch } from '@/db/epoch.js'
+import { createChat, getChat, updateChatMetadata } from '@/db/chat.js'
+import { ensureActiveChatEpoch, rotateActiveChatEpoch } from '@/db/epoch.js'
 import { BackendResumeRepository } from '@/db/backendResume.js'
 import * as pendingInputs from '@/db/pendingInput.js'
 import { SourceContextRepository } from '@/db/sourceContext.js'
@@ -41,10 +41,11 @@ async function fixture() {
     subject: { selfId: '123', userId: '789', conversationType: 'group' as const, groupId: '456' } }
   const [scope] = await source.configure(ownerId, { channel: 'qq', selfId: '123', revision: ++sourceRevision,
     targets: [{ conversationType: 'group', targetId: '456', presetId: randomUUID(), qqContextEpoch: chatId }], validateIdentity: validate })
+  updateChatMetadata(chatId, { presetId: scope!.presetId })
   const auth = { scopeId: scope!.scopeId, eventId: commandId, requestIdentity: identity, validateIdentity: validate }
   const receipt = await source.beginReceipt(ownerId, { ...auth, purpose: 'record',
     message: { eventId: commandId, messageId: String(sourceRevision), sender: { id: '789', name: 'fixture' }, receivedAt: Date.now(), parts: [{ type: 'text', partId: 'p0', text: 'new request' }] } })
-  await source.completeReceipt(ownerId, { ...auth, purpose: 'record', receiptId: receipt.receiptId, expectedVersion: receipt.version, handling: { kind: 'background' } })
+  await source.completeReceipt(ownerId, { ...auth, purpose: 'record', receiptId: receipt.receiptId, expectedVersion: receipt.version, handling: { kind: 'queued', requestId: commandId } })
   const snapshot = await source.freeze(ownerId, { ...auth, purpose: 'execution', requestId: commandId,
     actorRecord: receipt.record, inputRecords: [receipt.record], expectedSelectionRevision: 0,
     policy: { historyLimit: 10, backgroundMaxAgeMs: 60000, backgroundMaxChars: 5000, qqConfigRevision: 1 } })
@@ -57,10 +58,46 @@ async function fixture() {
   const submit = () => ingressExecution.run(execution, () => handleChatInputSubmit(ctx, input))
   const oldInput = (state: pendingInputs.PendingInputRow['state']) => pendingInputs.addPendingInput({ inputId: randomUUID(),
     chatId, messageId: randomUUID(), commandId: randomUUID(), content: 'old', state, queueSequence: 1, acceptedAt: 1 })
-  return { db, chatId, commandId, resume, coordinator, builder, queue, runner, validate, execution, input, ctx, submit, oldInput }
+  return { db, chatId, commandId, resume, coordinator, builder, queue, runner, validate, execution, input, ctx, submit, oldInput, scope: scope!, epoch }
 }
 
 describe('new QQ input after Backend restart', () => {
+  it.each(['before-submit', 'during-runtime-init'])('retains the source scope after a configuration epoch change %s', async timing => {
+    const f = await fixture(), repo = new SourceContextRepository(f.db), authority = sourceExecutionAuthority(f.execution.identity, f.validate)
+    const rotate = () => rotateActiveChatEpoch({ chatId: f.chatId, transitionReason: 'configuration-changed', handoffSummary: '' })
+    if (timing === 'before-submit') rotate()
+    else vi.spyOn(runtime, 'ensureChat').mockImplementation(async () => { rotate(); return f.builder as any })
+    const snapshot = repo.snapshot(authority, f.scope.scopeId, f.execution.sourceInput!.snapshotId)
+    f.oldInput('cancelled')
+    await expect(f.submit()).resolves.toMatchObject({ state: 'started' })
+    const epochId = getChat(f.chatId)!.active_epoch_id!
+    expect(epochId).not.toBe(f.epoch.epochId)
+    expect(repo.scope(authority, f.scope.scopeId)).toMatchObject({ scopeId: f.scope.scopeId, presetId: f.scope.presetId,
+      coreBinding: { chatId: f.chatId, epochId }, permissionRevision: f.scope.permissionRevision })
+    expect(repo.snapshot(authority, f.scope.scopeId, snapshot.snapshotId)).toEqual(snapshot)
+    expect(f.db.prepare('SELECT epoch_id FROM source_tasks WHERE request_id=?').get(f.commandId)).toEqual({ epoch_id: epochId })
+    expect(f.db.prepare("SELECT state FROM pending_inputs WHERE chat_id=? AND content='old'").get(f.chatId)).toEqual({ state: 'cancelled' })
+    expect(f.runner).toHaveBeenCalledTimes(1)
+    expect(f.resume.required(f.chatId)).toBe(false)
+  })
+  it.each(['other-chat', 'old-epoch', 'reset', 'preset', 'revoked'])('rejects a %s rebind', async kind => {
+    const f = await fixture(), repo = new SourceContextRepository(f.db), authority = sourceExecutionAuthority(f.execution.identity, f.validate)
+    const next = rotateActiveChatEpoch({ chatId: f.chatId, transitionReason: kind === 'reset' ? 'manual-reset' : 'configuration-changed', handoffSummary: '' })
+    if (kind === 'preset') updateChatMetadata(f.chatId, { presetId: 'another-preset' })
+    if (kind === 'revoked') f.validate.mockImplementation(() => { throw Object.assign(new Error('revoked'), { code: 'PERMISSION_DENIED' }) })
+    if (kind === 'old-epoch') repo.bindCore(authority, f.scope.scopeId, { chatId: f.chatId, epochId: next.epochId })
+    expect(() => repo.bindCore(authority, f.scope.scopeId, { chatId: kind === 'other-chat' ? 'other-chat' : f.chatId,
+      epochId: kind === 'old-epoch' ? f.epoch.epochId : next.epochId })).toThrow(kind === 'revoked' ? 'revoked' : 'SOURCE_CONFLICT')
+  })
+  it('rolls back the source binding if admission fails after configuration changes', async () => {
+    const f = await fixture(), repo = new SourceContextRepository(f.db), authority = sourceExecutionAuthority(f.execution.identity, f.validate)
+    rotateActiveChatEpoch({ chatId: f.chatId, transitionReason: 'configuration-changed', handoffSummary: '' })
+    vi.spyOn(pendingInputs, 'addPendingInput').mockImplementationOnce(() => { throw new Error('fixture persistence failure') })
+    await expect(f.submit()).rejects.toThrow('fixture persistence failure')
+    expect(repo.scope(authority, f.scope.scopeId).coreBinding?.epochId).toBe(f.epoch.epochId)
+    expect(f.resume.required(f.chatId)).toBe(true)
+    expect(f.runner).not.toHaveBeenCalled()
+  })
   it('admits only the new input with an empty queue, without continuing cancelled history', async () => {
     const f = await fixture()
     f.oldInput('cancelled')
@@ -99,7 +136,7 @@ describe('new QQ input after Backend restart', () => {
     if (kind === 'entry') f.execution.identity = { ...f.execution.identity, entryId: 'other' }
     if (kind === 'channel') f.execution.identity = { ...f.execution.identity, channel: 'other' }
     if (kind === 'missing-source') { delete f.execution.sourceInput; f.input.content = 'other input' }
-    await expect(f.submit()).rejects.toMatchObject({ code: 'BACKEND_RESUME_REQUIRED' })
+    await expect(f.submit()).rejects.toMatchObject({ code: kind === 'owner' || kind === 'channel' ? 'PERMISSION_DENIED' : 'BACKEND_RESUME_REQUIRED' })
     expect(f.resume.required(f.chatId)).toBe(true); expect(f.runner).not.toHaveBeenCalled()
   })
   it.each(['command', 'turn', 'actor', 'binding'])('rejects a mismatched %s', async kind => {
@@ -108,7 +145,7 @@ describe('new QQ input after Backend restart', () => {
     if (kind === 'turn') f.execution.sourceInput!.turnId = randomUUID()
     if (kind === 'actor') f.execution.identity = { ...f.execution.identity, subject: { ...f.execution.identity.subject!, userId: '999' } }
     if (kind === 'binding') f.db.prepare('UPDATE chats SET active_epoch_id=NULL WHERE id=?').run(f.chatId)
-    await expect(f.submit()).rejects.toMatchObject({ code: 'IDENTITY_REJECTED' })
+    await expect(f.submit()).rejects.toMatchObject({ code: kind === 'binding' ? 'SOURCE_CONTEXT_UNAVAILABLE' : 'IDENTITY_REJECTED' })
     expect(f.resume.required(f.chatId)).toBe(true); expect(f.runner).not.toHaveBeenCalled()
   })
   it('revalidates permission after runtime initialization', async () => {

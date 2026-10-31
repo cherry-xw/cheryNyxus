@@ -83,12 +83,13 @@ export async function handleChatInputSubmit(
   try {
     assertNewBackendWork()
     assertRestartAdmission()
-    const chat = assertChatExists(data.chatId)
+    let chat = assertChatExists(data.chatId)
     if (chat.parent_chat_id && data.controlRootChatId !== getRootChatId(data.chatId)) {
       throw new Error('用户输入只能提交到主 Agent')
     }
 
     const agent = await ensureChat(data.chatId)
+    chat = assertChatExists(data.chatId)
     assertNewBackendWork()
     assertRestartAdmission()
     const pending = getPendingChatInputs(data.chatId)
@@ -96,11 +97,7 @@ export async function handleChatInputSubmit(
     const active = agent.isRunning() || !!getActiveChatRunId(data.chatId)
     if (requestLocal && (active || pending.length || listPendingInputs(data.chatId).length))
       throw Object.assign(new Error('Request-local inputs must wait for the previous run'), { code: 'PREVIOUS_WORK_PENDING' })
-    const releaseForNewInput = backendResumeRequired(data.chatId) &&
-      isNewQQSourceInput(execution, data.chatId, assertChatExists(data.chatId).active_epoch_id, data.commandId)
-    const running = active || backendResumeRequired(data.chatId) && !releaseForNewInput
-    if (requestLocal && running)
-      throw Object.assign(new Error('Request-local inputs must wait for the previous run'), { code: 'BACKEND_RESUME_REQUIRED' })
+    let running = active || backendResumeRequired(data.chatId)
     if (pending.length >= 16) throw new UserInputQueueFullError()
 
     const inputId = randomUUID()
@@ -109,6 +106,17 @@ export async function handleChatInputSubmit(
     const acceptedAt = Date.now()
     const prompt = resolvedContent
     const response = getSoulDb().transaction(() => {
+    if (sourceInput) {
+      const authority = sourceExecutionAuthority(execution?.identity, execution?.validate)
+      const source = validateSourceInput(sourceInput, authority)
+      if (!chat.active_epoch_id) throw Object.assign(new Error('SOURCE_CONTEXT_UNAVAILABLE'), { code: 'SOURCE_CONTEXT_UNAVAILABLE' })
+      source.repo.bindCore(authority, sourceInput.scopeId, { chatId: data.chatId, epochId: chat.active_epoch_id })
+    }
+    const releaseForNewInput = backendResumeRequired(data.chatId) &&
+      isNewQQSourceInput(execution, data.chatId, chat.active_epoch_id, data.commandId)
+    running = active || backendResumeRequired(data.chatId) && !releaseForNewInput
+    if (requestLocal && running)
+      throw Object.assign(new Error('Request-local inputs must wait for the previous run'), { code: 'BACKEND_RESUME_REQUIRED' })
     if (sourceInput && requestLocal && execution?.identity.source === 'plugin' && execution.identity.channel === 'qq') {
       const authority = sourceExecutionAuthority(execution.identity, execution.validate)
       const source = validateSourceInput(sourceInput, authority)

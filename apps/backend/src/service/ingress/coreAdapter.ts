@@ -287,11 +287,7 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
       } = input
       validateIdentity()
       if (sourceInput) {
-        const source = validateSourceInput(sourceInput, sourceExecutionAuthority(requestIdentity, validateIdentity))
-        const chat = getChat(chatId)!
-        if (!chat.active_epoch_id) throw new Error('SOURCE_CONTEXT_UNAVAILABLE')
-        source.repo.bindCore(sourceExecutionAuthority(requestIdentity, validateIdentity), sourceInput.scopeId,
-          { chatId, epochId: chat.active_epoch_id })
+        validateSourceInput(sourceInput, sourceExecutionAuthority(requestIdentity, validateIdentity))
       }
       submitting.set(chatId, (submitting.get(chatId) ?? 0) + 1)
       try {

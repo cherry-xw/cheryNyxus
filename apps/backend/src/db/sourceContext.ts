@@ -496,7 +496,18 @@ export class SourceContextRepository {
   bindCore(authority: SourceAuthority, scopeId: string, binding: NonNullable<SourceScope['coreBinding']>): SourceScope {
     return this.db.transaction(() => {
       const scope = this.scope(authority, scopeId, ['execution'])
-      if (scope.coreBinding && canonical(scope.coreBinding) !== canonical(binding)) sourceContextError('SOURCE_CONFLICT')
+      if (scope.coreBinding && canonical(scope.coreBinding) !== canonical(binding)) {
+        if (scope.coreBinding.chatId !== binding.chatId) sourceContextError('SOURCE_CONFLICT')
+        const transition = this.db.prepare(`SELECT 1 FROM chats c
+          JOIN chat_epochs previous ON previous.epoch_id=? AND previous.root_chat_id=c.id
+          JOIN chat_epochs current ON current.epoch_id=c.active_epoch_id AND current.root_chat_id=c.id
+          WHERE c.id=? AND c.active_epoch_id=? AND previous.status='historical'
+            AND current.status='active' AND current.ordinal>previous.ordinal
+            AND current.transition_reason='configuration-changed'
+            AND json_extract(c.metadata,'$.presetId')=?`)
+          .get(scope.coreBinding.epochId, binding.chatId, binding.epochId, scope.presetId)
+        if (!transition) sourceContextError('SOURCE_CONFLICT')
+      }
       const next = SourceScopeSchema.parse({ ...scope, coreBinding: binding })
       this.saveScope(next)
       this.db.prepare(`INSERT OR IGNORE INTO asset_chat_grants(asset_id,chat_id)
