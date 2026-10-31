@@ -128,7 +128,12 @@ export interface IngressPreset {
   senseGroup: string
   mcpServers: readonly string[]
 }
-export interface IngressInternalTextInput { preset: string; instruction: string; content: string; signal?: AbortSignal }
+export interface IngressInternalTextInput { preset: string; instruction: string; content: string; signal?: AbortSignal
+  sourceMaintenance?: IngressSourceMaintenanceContext & { operationId: string }
+}
+export type IngressInternalTextAuthorization = Omit<IngressInternalTextInput, 'sourceMaintenance'> & {
+  sourceMaintenance?: IngressSourceMaintenanceAuthorization & { operationId: string }
+}
 export interface IngressFileContext {
   conversationKey: string
   entryId: string
@@ -306,9 +311,6 @@ export interface IngressCore {
   resolvePreset(name: string): Readonly<IngressPreset>
   ensureConversation(key: string, preset: string): Promise<{ chatId: string }>
   submit(input: IngressSubmit): Promise<ChatInputSubmitResponseData>
-  recentConversationMessages?(conversationKey: string, count: number): Promise<string>
-  conversationHistory?(conversationKey: string): Promise<string>
-  commitSummary?(conversationKey: string, summary: string): Promise<void>
   abort(conversationKey: string): Promise<void>
   onEvent(
     listener: (conversationKey: string, event: Readonly<Record<string, unknown>>) => void,
@@ -335,9 +337,6 @@ export interface IngressCoreAdapter {
       validateIdentity(): void
     },
   ): Promise<ChatInputSubmitResponseData>
-  recentConversationMessages?(ownerId: string, key: string, count: number): Promise<string>
-  conversationHistory?(ownerId: string, key: string): Promise<string>
-  commitSummary?(ownerId: string, key: string, summary: string): Promise<void>
   abort(ownerId: string, key: string): Promise<void>
   onEvent(
     ownerId: string,

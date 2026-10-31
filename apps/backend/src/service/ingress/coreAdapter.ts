@@ -232,23 +232,44 @@ export function createIngressCoreAdapter(): IngressCoreAdapter {
         { id: randomUUID(), role: 'user' as const, content: input.content, createdAt: now, updateAt: now },
       ]
       const protocol = resolveBrainProtocol(brain)
-      let response
-      try {
-        response = await llm.chat(messages.buildMessages(history), [], {
+      input.signal?.throwIfAborted()
+      const maintenance = input.sourceMaintenance
+      const repo = maintenance ? new SourceContextRepository(getSoulDb()) : undefined
+      const auth = maintenance ? repo!.maintenanceAuthority({ ownerId: _owner, channel: maintenance.channel,
+        selfId: maintenance.selfId, validate: maintenance.validateIdentity }, maintenance.scopeId) : undefined
+      if (maintenance && repo!.scope(auth!, maintenance.scopeId).presetId !== selection.presetId) sourceContextError('SUMMARY_DESTINATION_CHANGED')
+      const tracking = maintenance ? sourceMaintenanceCall(repo!, auth!, { scopeId: maintenance.scopeId, operationId: maintenance.operationId,
+        contentMessageId: history[1]!.id, content: input.content, runtimeConfigRevision: ensureCurrentConfigRevision().revisionId,
+        registryVersion: getSenseRegistryVersion(), signal: input.signal }) : undefined
+      const options: import('@/core/llm/adapter.js').LLMOptions = {
         model: brain.model, provider: brain.provider, protocol,
         url: brain.url ?? resolveLlmProviderDefaultUrl(brain.provider, protocol), key: brain.key,
-        fullUrl: brain.fullUrl === true, brain: selection.selection.brain,
-        signal: input.signal,
-        continuous: _owner === 'cherynyxus-qq-module',
-        thinking: 'off',
-        })
+        fullUrl: brain.fullUrl === true, brain: selection.selection.brain, signal: input.signal,
+        continuous: !!maintenance || _owner === 'cherynyxus-qq-module', thinking: 'off', ...tracking,
+        ...(maintenance ? { inputPreflight: { contextLimit: brain.contextLimit, safetyMargin: config.global.command?.safety_margin,
+          afterCompaction: true, report() {} } } : {}),
+      }
+      let response
+      let completed = false
+      try {
+        const built = messages.buildMessages(history, undefined, { protocol })
+        if (tracking && protocol === 'mock') {
+          const body = { model: brain.model, messages: built, tools: [] }
+          await preflightModelInput(body, options, protocol)
+          tracking.sourceCall!.prepare(body, protocol); tracking.observation!.start(brain.model)
+        }
+        response = await llm.chat(built, [], options)
+        tracking?.observation?.response(response)
+        completed = true
       } catch (cause) {
         input.signal?.throwIfAborted()
-        const code = cause instanceof ClassifiedError
+        const code = cause instanceof ClassifiedError && cause.errorId === ErrorId.REQUEST_INPUT_TOO_LARGE ? 'SUMMARY_BUDGET_FAILED' : cause instanceof ClassifiedError
           ? ({ auth: 'AUTH_REQUIRED', validation: 'INVALID_PARAMS', network: 'ECONNRESET', timeout: 'ETIMEDOUT', provider: 'MODEL_UNAVAILABLE', unknown: 'SUMMARY_MODEL_FAILED' } as const)[cause.category]
           : 'SUMMARY_MODEL_FAILED'
         throw Object.assign(new Error('Internal text generation failed', { cause }), { code })
-      }
+      } finally { tracking?.observation?.finish(completed ? 'completed' : input.signal?.aborted ? 'cancelled' : 'failed') }
+      input.signal?.throwIfAborted()
+      if (maintenance) repo!.scope(auth!, maintenance.scopeId, ['maintenance'])
       const text = messages.content(response)
       if (!text || text.length > 100000) throw new Error('Invalid internal text output')
       return text

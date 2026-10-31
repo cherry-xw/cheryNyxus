@@ -480,32 +480,14 @@ export class IngressHost {
           this.authority.project(id, params.entryId, identity)
           return result
         },
-        recentConversationMessages: async (key: string, count: number) => {
-          requireActive()
-          if (!active.conversations.has(key) || !core.recentConversationMessages) throw ingressError('IDENTITY_REJECTED')
-          if (!Number.isInteger(count) || count < 1 || count > 100) throw ingressError('INVALID_PARAMS')
-          const result = await core.recentConversationMessages(id, key, count)
-          requireActive()
-          return result
-        },
-        conversationHistory: async (key: string) => {
-          requireActive()
-          if (!active.conversations.has(key) || !core.conversationHistory) throw ingressError('IDENTITY_REJECTED')
-          const result = await core.conversationHistory(id, key)
-          requireActive()
-          return result
-        },
-        commitSummary: async (key: string, summary: string) => {
-          requireActive()
-          if (!active.conversations.has(key) || !core.commitSummary) throw ingressError('IDENTITY_REJECTED')
-          await core.commitSummary(id, key, summary)
-          requireActive()
-        },
         internalText: async (input: Parameters<NonNullable<IngressContext['core']['internalText']>>[0]) => {
           requireActive()
           if (!core.internalText) throw ingressError('NOT_SUPPORTED')
           if (input.instruction.length > 20000 || input.content.length > 200000) throw ingressError('INVALID_PARAMS')
-          const text = await core.internalText(id, { ...input, signal: input.signal ? AbortSignal.any([input.signal, active.controller.signal]) : active.controller.signal })
+          const { sourceMaintenance, ...textInput } = input
+          const text = await core.internalText(id, { ...textInput,
+            ...(sourceMaintenance ? { sourceMaintenance: { ...await maintenanceAuthorization(sourceMaintenance), operationId: sourceMaintenance.operationId } } : {}),
+            signal: input.signal ? AbortSignal.any([input.signal, active.controller.signal]) : active.controller.signal })
           requireActive()
           return text
         },
