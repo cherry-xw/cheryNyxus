@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { QQKnowledgeStore, TermInputSchema, type KnowledgeEvidence } from '../src/knowledge.js'
 import { QQKnowledgeCandidates } from '../src/knowledgeCandidates.js'
+import { textVersion } from '../src/files.js'
 
 const dirs:string[]=[]
 afterEach(async()=>{for(const dir of dirs.splice(0))await fs.rm(dir,{recursive:true,force:true})})
@@ -84,5 +85,47 @@ describe('QQ scoped knowledge',()=>{
     await candidates.save(subject.selfId,'allowed',0,[term()],[web]);await candidates.finish(subject.selfId,'allowed','completed')
     await expect(candidates.adopt(subject,'allowed','adopt',undefined,denied)).rejects.toThrow('PERMISSION_DENIED')
     expect((await store.list(subject,'public')).entries).toEqual([])
+  })
+  it('isolates persisted extraction caches between robots even for identical input',async()=>{
+    const {dir,store}=await fixture(),key='public:identical-body'
+    await store.cache('100',key,'first-result')
+    expect(await store.cache('101',key)).toBeUndefined()
+    const restarted=new QQKnowledgeStore(dir)
+    expect(await restarted.cache('100',key)).toBe('first-result')
+    await restarted.cache('101',key,'second-result')
+    expect(await restarted.cache('100',key)).toBe('first-result')
+    expect(await restarted.cache('101',key)).toBe('second-result')
+  })
+  it('persists robot ownership and refuses a mismatched owner before changing data',async()=>{
+    const {dir,store}=await fixture()
+    await store.manage(subject,'local',{operationId:'initial',expectedRevision:0,save:[term()],delete:[]},[web])
+    const files=await fs.readdir(path.join(dir,'memory','local')),file=path.join(dir,'memory','local',files[0]!)
+    const data=JSON.parse(await fs.readFile(file,'utf8'))
+    expect(data.ownerHash).toBe(textVersion(subject.selfId))
+    data.ownerHash=textVersion('101');await fs.writeFile(file,JSON.stringify(data))
+    const before=await fs.readFile(file,'utf8')
+    await expect(store.manage(subject,'local',{operationId:'wrong-owner',expectedRevision:1,save:[],delete:['term-one']},[])).rejects.toThrow('NOT_ALLOWED')
+    expect(await fs.readFile(file,'utf8')).toBe(before)
+  })
+  it('shares public terms with same-robot private chats without sharing local records or budget',async()=>{
+    const {dir,store}=await fixture()
+    await store.manage(subject,'local',{operationId:'local',expectedRevision:0,save:[term()],delete:[]},[web])
+    await store.manage(subject,'public',{operationId:'public',expectedRevision:0,save:[term()],delete:[]},[web])
+    const privateResult=await store.search({...subject,conversationType:'private'},'躺平')
+    expect(privateResult.entries.map(item=>item.scope)).toEqual(['public'])
+    expect((await store.search({...subject,selfId:'101',conversationType:'private'},'躺平')).entries).toEqual([])
+    const all=(await store.search(subject,'躺平')).entries
+    const budget=Math.max(...all.map(item=>JSON.stringify(item).length))
+    const limited=new QQKnowledgeStore(dir,{maxEntries:100,maxChars:300,contextChars:budget})
+    const result=await limited.search(subject,'躺平')
+    expect(result.entries).toHaveLength(1)
+    expect(result.entries.reduce((size,item)=>size+JSON.stringify(item).length,0)).toBeLessThanOrEqual(budget)
+    expect((await store.search(subject,'躺平','both',8,false)).entries.map(item=>item.scope)).toEqual(['local'])
+  })
+  it('matches an explicit single-character term without matching characters inside unrelated words',async()=>{
+    const {store}=await fixture()
+    await store.manage(subject,'local',{operationId:'single',expectedRevision:0,save:[term('single','梗')],delete:[]},[web])
+    expect((await store.search(subject,'梗')).entries).toHaveLength(1)
+    expect((await store.search(subject,'梗概是什么')).entries).toEqual([])
   })
 })

@@ -83,4 +83,27 @@ describe('QQ learning scheduling and recovery',()=>{
     vi.setSystemTime(300000);f.config.learningEnabled=true;f.learning.changed()
     expect(f.state.since).toBe(300000);expect(f.task.state).toBe('cancelled')
   })
+  it('sends only eligible web text to public extraction, not group records or execution facts',async()=>{
+    const f=fixture();f.task.phase='public';f.task.localReceipt='done'
+    f.prepared.records=[{recordId:'private-record',parts:[{type:'text',text:'group-private-body'}]} as any]
+    f.prepared.runs=[{runId:'private-run',output:'private-output'} as any]
+    f.prepared.deliveries=[{message:'private-delivery'} as any]
+    f.prepared.evidence=[{publicEligible:true,text:'公开词义正文',contentHash:'public-hash',truncated:false,runId:'private-run',url:'https://example.com/term'},
+      {publicEligible:false,text:'private-web-body',contentHash:'private-hash'}] as any
+    await f.work()
+    expect(f.internalText).toHaveBeenCalledTimes(1)
+    const input=f.internalText.mock.calls[0]![0] as any
+    const content=JSON.parse(JSON.parse(input.content).map((part:any)=>part.text).join(''))
+    expect(content).toEqual([{evidenceId:'public-hash',text:'公开词义正文',truncated:false}])
+    for(const secret of ['group-private-body','private-record','private-output','private-delivery','private-web-body','private-run'])expect(input.content).not.toContain(secret)
+  })
+  it('passes configured consolidation limits to local learning without charging a summary call',async()=>{
+    const f=fixture();f.config.memoryConsolidateRatio=0.9;f.config.memoryTargetRatio=0.4
+    await f.work()
+    const input=f.internalText.mock.calls[0]![0] as any
+    const content=JSON.parse(JSON.parse(input.content).map((part:any)=>part.text).join(''))
+    expect(content.limits).toMatchObject({triggerRatio:0.9,targetRatio:0.4,maxEntries:f.config.memoryMaxEntries,maxChars:f.config.memoryMaxChars})
+    expect(f.state.calls).toHaveLength(f.internalText.mock.calls.length)
+    expect(input.sourceMaintenance.kind).toBe('learning')
+  })
 })
