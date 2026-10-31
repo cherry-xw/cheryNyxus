@@ -187,6 +187,7 @@ export class AgentBuilder {
       extraUserMessages?: string[]
       inputMeta?: Omit<Partial<UserInputEntry>, 'content' | 'time'>
       inputAlreadyQueued?: boolean
+      resumeMeta?: Omit<Partial<UserInputEntry>, 'content' | 'time'>
     },
   ): AsyncGenerator<MiddlewareChunk, void, unknown> {
     return this.requireAgent().send(input, options)
@@ -197,12 +198,12 @@ export class AgentBuilder {
    * Case1（末尾有 pending sense）→ 置 resumePending 标志，首轮 skip chat 层恢复执行；
    * Case2（全 done）→ 不置标志，run("") 正常 loop（LLM 基于 done sense 回复）。
    */
-  resume(): AsyncGenerator<MiddlewareChunk, void, unknown> {
+  resume(resumeMeta?: Omit<Partial<UserInputEntry>, 'content' | 'time'>): AsyncGenerator<MiddlewareChunk, void, unknown> {
     const agent = this.requireAgent()
     if (agent.hasPendingTrailingSense()) {
       agent.setResumePending(true)
     }
-    return this.run('')
+    return this.run('', { resumeMeta })
   }
 
   /**

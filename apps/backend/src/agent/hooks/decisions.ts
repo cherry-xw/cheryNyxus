@@ -35,6 +35,7 @@ const schemas: Partial<Record<HookEvent, z.ZodType>> = {
           z
             .object({
               key: z.string().min(1).max(100),
+              kind: z.enum(['rules', 'data']).optional(),
               content: z.string(),
               configRevision: z.number().int().nonnegative(),
             })

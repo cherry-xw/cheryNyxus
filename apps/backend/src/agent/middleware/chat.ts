@@ -1,3 +1,6 @@
+import { contextRecoveryAdapter } from './contextRecovery.js'
+import { applyContextCheckpoint } from './contextCheckpoint.js'
+import { updateChatMetadata } from '@/db/chat.js'
 import { enrichMediaInputs } from './mediaEnrichment.js'
 import { saveFileRequestPlan, patchFileRequestPlan } from '@/service/fileServices/inputObservations.js'
 
@@ -25,7 +28,7 @@ import type {
   ServerToolCallDelta,
   ThinkingBlockDelta,
 } from '@/core/message/adapter'
-import { ThinkingBlockAssembler } from '@/agent/provider/thinkingBlockAssembler.js'
+import { ThinkingBlockAssembler, completeThinkingBlockDeltas } from '@/agent/provider/thinkingBlockAssembler.js'
 import config from '@/utils/config.js'
 import { dispatch } from '@/agent/hooks/index.js'
 import { functionHooks } from '@/agent/hooks/functions.js'
@@ -38,7 +41,10 @@ import { estimateTokens } from '@/utils/token.js'
 import { describeFileReferences } from '@/service/workspace/handler.js'
 import { ModelRequestTimeoutError } from './requestTimeout.js'
 import { SenseCallAssembler } from './senseCallAssembler.js'
-import { requestHookContext, requestSignal } from '@/agent/hooks/request.js'
+import { requestHookContext, requestSignal, refreshRequestCapabilities } from '@/agent/hooks/request.js'
+import { prepareSourceHistory } from './sourceHistory.js'
+import { sourceModelStep } from './sourceProjection.js'
+import { failSourceCapacity, prepareSourceCapacity } from './sourceCapacity.js'
 
 /**
  * Chat Middleware
@@ -53,7 +59,7 @@ export async function* chatMiddleware(
   // P2-4：runtime 在 send 前 configureRuntime 注入；运行时守卫窄化，消除构造期 {} as 谎言
   if (!ctx.runtime)
     throw new Error('Runtime not configured. Call configureRuntime() before send().')
-  const { llmAdapter, messageAdapter, senseAdapter } = ctx.runtime.adapters
+  const { messageAdapter, senseAdapter } = ctx.runtime.adapters
   reportWorkflow(ctx.soul.chatId, {
     activeNodeId: 'model',
     phaseLabel: '准备请求',
@@ -116,12 +122,20 @@ export async function* chatMiddleware(
     signal: requestSignal(ctx),
     brain: ctx.runtime.brainName,
     requestView: ctx.requestView,
-    ...(fileProjection.plan?.length ? { inputPreflight: {
+    inputPreflight: {
       contextLimit: ctx.runtime.brain.contextLimit,
-      report: (result: import('@/core/llm/adapter.js').InputTokenPreflight) => patchFileRequestPlan(ctx.soul.chatId, fileRequestId, result as unknown as Record<string, unknown>),
-    } } : {}),
+      safetyMargin: ctx.runtime.configSnapshot?.global.command?.safety_margin ?? config.global.command?.safety_margin,
+      trigger: ctx.runtime.configSnapshot?.global.command?.auto ?? config.global.command?.auto,
+      compactIfNeeded: (ctx.runtime.brain.contextLimit ?? 0) >= (ctx.runtime.configSnapshot?.global.command?.min_context_limit ?? config.global.command?.min_context_limit ?? 0),
+      forcePreparation: historyForBuild.findLast(m => m.role === 'user')?.content.includes('[[command:/compact]]'),
+      report: (result: import('@/core/llm/adapter.js').InputTokenPreflight) => {
+        updateChatMetadata(ctx.soul.chatId, { modelInputBudget: { ...result, model: ctx.runtime!.brain.model, protocol, requestId: ctx.requestView?.requestId } })
+        if (fileProjection.plan?.length) patchFileRequestPlan(ctx.soul.chatId, fileRequestId, result as unknown as Record<string, unknown>)
+      },
+    },
   }
 
+  if (!prepared.source) historyForBuild = applyContextCheckpoint(ctx.soul.chatId, historyForBuild)
   const messages = messageAdapter.buildMessages(
     historyForBuild.filter((message) => !message.modelExcluded),
     attachments,
@@ -210,16 +224,16 @@ export async function* chatMiddleware(
     start(model) {
       requestSignal(ctx)?.throwIfAborted()
       ctx.requestExecution?.validate()
-      fileProjection.commit?.()
+       if (!prepared.source) fileProjection.commit?.()
       requestWasSent = true
       if (fileProjection.plan?.length) patchFileRequestPlan(ctx.soul.chatId, fileRequestId, { phase: 'sent' })
       observation.start(model)
     },
   }
-  if (options.provider === 'mock' || options.protocol === 'mock') options.observation.start()
+   if (!prepared.source && (options.provider === 'mock' || options.protocol === 'mock')) options.observation.start()
   // Deadline starts at the provider boundary, not while preparing context or waiting for tools.
   const qqTask = ctx.requestView?.identity.source === 'plugin' && ctx.requestView.identity.channel === 'qq'
-  const timeoutMs = qqTask ? 0 : config.global.llm_request_timeout_ms ?? 10 * 60 * 1000
+  const timeoutMs = qqTask ? 0 : config.global.llm_request_timeout_ms ?? DEFAULT_GLOBAL_OPTIONS.llm_request_timeout_ms
   const parentSignal = options.signal
   const controller = new AbortController()
   const abortFromParent = () => controller.abort()
@@ -242,11 +256,12 @@ export async function* chatMiddleware(
           rejectDeadline?.(new ModelRequestTimeoutError(timeoutMs))
         }, timeoutMs)
       : undefined
+  const llmAdapter = contextRecoveryAdapter(ctx, () => historyForBuild, history => messageAdapter.buildMessages(history, attachments, { protocol: options.protocol, anthropicOfficial: options.anthropicOfficial, reasoningHistory: resolveCatalogReasoningHistory({ model: options.model, provider: options.provider, protocol: options.protocol }) }))
   let completed = false
   try {
     if (ctx.requestExecution?.execution?.toolHistory === 'request') {
       yield* withModelDeadline(
-        handleRequestLocal(ctx, options, historyForBuild, attachments, fileRequestId),
+        handleRequestLocal(ctx, options, prepared, fileRequestId),
         deadline,
         timeoutMs > 0,
       )
@@ -289,12 +304,15 @@ export async function* chatMiddleware(
 }
 
 /** Prepare this request's media and temporary prompts without mutating stored history. */
-async function prepareModelHistory(ctx: MiddlewareContext, requestId: string): Promise<{
+async function prepareModelHistory(ctx: MiddlewareContext, requestId: string, history = ctx.soul.messages || []): Promise<{
   historyForBuild: LLMResponse[]
   attachments?: LLMAttachment[]
   fileProjection: Awaited<ReturnType<typeof enrichMediaInputs>>
+  source?: import('./sourceHistory.js').PreparedSourceHistory
 }> {
-  const enriched = await enrichMediaInputs(ctx, ctx.soul.messages || [])
+  refreshRequestCapabilities(ctx)
+  const sourceHistory = prepareSourceHistory(ctx, history)
+  const enriched = await enrichMediaInputs(ctx, sourceHistory.history, sourceHistory.source)
   if (enriched.plan?.length) saveFileRequestPlan(ctx.soul.chatId, { requestId, phase: 'prepared', policy: config.files?.imageContext, plan: enriched.plan, usage: enriched.usage, officialPreflight: 'pending' })
 
   // 本次文件处理限制只用于请求，不写回历史。
@@ -321,6 +339,7 @@ async function prepareModelHistory(ctx: MiddlewareContext, requestId: string): P
     historyForBuild = [
       ...historyForBuild,
       {
+        id: `file-references:${latestUser!.id}`,
         role: 'user',
         content: fileReferences,
         createdAt: Date.now(),
@@ -332,47 +351,90 @@ async function prepareModelHistory(ctx: MiddlewareContext, requestId: string): P
   if (dynamic.length)
     historyForBuild = [
       ...dynamic.map((item) => ({
-        id: randomUUID(),
-        role: 'system' as const,
+        id: `request-context:${item.ownerId}:${item.key}`,
+         role: item.kind === 'data' ? 'user' as const : 'system' as const,
         content: item.content,
+        ...(item.kind === 'data' && sourceHistory.source ? { sourceData: {
+          key: `${sourceHistory.source.input.requestId}:${item.key}`, kind: item.key === 'qq.executionNotice' ? 'execution_notice' as const : 'memory' as const,
+          revision: 1,
+        } } : {}),
         createdAt: Date.now(),
         updateAt: Date.now(),
       })),
       ...historyForBuild,
     ]
-  return { historyForBuild, attachments: enriched.attachments, fileProjection: enriched }
+  return { historyForBuild, attachments: enriched.attachments, fileProjection: enriched, source: sourceHistory.source }
 }
 
 /** Only the final answer leaves this request-local model/tool history. */
 async function* handleRequestLocal(
   ctx: MiddlewareContext,
   options: LLMOptions,
-  initial: LLMResponse[],
-  attachments?: LLMAttachment[],
+  initial: Awaited<ReturnType<typeof prepareModelHistory>>,
   fileRequestId?: string,
 ): AsyncGenerator<MiddlewareChunk> {
   const runtime = ctx.runtime!
-  const { llmAdapter, messageAdapter, senseAdapter } = runtime.adapters
+  const { messageAdapter, senseAdapter } = runtime.adapters
   const history = [...(ctx.soul.messages ?? [])]
-  const temporaryPrompts = initial.filter(message => message.id !== 'file-input-capabilities' && !history.some(original => original.id === message.id) && message.role === 'system')
+  const sourceRun = initial.source
+  const runId = sourceRun ? sourceRun.repo.ensureRun(sourceRun.authority, sourceRun.input.scopeId, sourceRun.input.requestId, ctx.requestView!.requestId) : undefined
+  if (sourceRun) {
+    const anchor = history.findLastIndex(message => message.sourceInput?.requestId === sourceRun.input.requestId)
+    if (anchor < 0) throw new Error('SOURCE_CONTEXT_UNAVAILABLE')
+    // Question calls/results are checkpoint-owned; record their resolved versions before restoring local tools.
+    for (const message of history.slice(anchor + 1)) if (!message.revoked && !message.modelExcluded &&
+      (message.role === 'assistant' && message.senseCalls?.length || message.role === 'sense' || message.role === 'role'))
+      sourceRun.repo.saveRunMessage(sourceRun.authority, sourceRun.input.scopeId, runId!, message, 'completed')
+    const saved = sourceRun.repo.runMessages(sourceRun.authority, sourceRun.input.scopeId, sourceRun.input.requestId)
+    if (saved.some(item => item.state !== 'completed')) throw new Error('SOURCE_TOOL_OUTCOME_UNKNOWN')
+    // The saved sequence is authoritative. Missing earlier tools must not be
+    // inserted in front of an already checkpointed question call out of order.
+    history.splice(anchor + 1, history.length - anchor - 1, ...saved.map(item => item.body))
+  }
   const parentObservation = options.observation
   const continuous = ctx.requestView?.identity.source === 'plugin' && ctx.requestView.identity.channel === 'qq'
-  for (let turn = 0; continuous || turn < (ctx.global.maxLoopCount ?? 30); turn++) {
+  for (let turn = 0; continuous || turn < (ctx.global.maxLoopCount ?? DEFAULT_GLOBAL_OPTIONS.maxLoopCount); turn++) {
     if (options.signal?.aborted) throw new Error('Request cancelled')
-    const enriched = turn > 0 ? await enrichMediaInputs(ctx, history) : undefined
-    if (enriched) {
-      attachments = enriched.attachments
+    let prepared = turn > 0 || sourceRun ? await prepareModelHistory(ctx, fileRequestId!, history) : initial
+    const enriched = prepared.fileProjection
+    const attachments = enriched.attachments
+    options.requestView = ctx.requestView
+    if (!prepared.source) {
       if (enriched.plan?.length && fileRequestId) patchFileRequestPlan(ctx.soul.chatId, fileRequestId, { phase: 'prepared', plan: enriched.plan, usage: enriched.usage })
       options.observation = parentObservation ? { ...parentObservation, start(model) { enriched.commit?.(); parentObservation.start(model) } } : undefined
     }
+    let projectedHistory = prepared.historyForBuild.filter(m => !m.modelExcluded && !m.revoked)
+    const stepReason: 'initial' | 'tool_continue' | 'question_resume' = turn > 0 ? 'tool_continue'
+      : history.some(message => message.senseCalls?.some(call => call.name === 'ask_user_question')) ? 'question_resume' : 'initial'
+    let sourceStep = prepared.source ? sourceModelStep(ctx, prepared.source, projectedHistory, enriched, options, parentObservation,
+      stepReason) : undefined
+    if (sourceStep) { options.sourceCall = sourceStep.boundary; options.observation = sourceStep.observation }
+    const autoCompactEnabled = (runtime.brain.contextLimit ?? 0) >= (runtime.configSnapshot?.global.command?.min_context_limit ?? config.global.command?.min_context_limit ?? 0)
+    if (options.inputPreflight) options.inputPreflight = { ...options.inputPreflight, compactIfNeeded: autoCompactEnabled, afterCompaction: false, accepted: undefined, forcePreparation: turn === 0 && options.inputPreflight.forcePreparation }
+    const readyHistory = prepared.source ? projectedHistory : applyContextCheckpoint(ctx.soul.chatId, projectedHistory)
+    const build = (current: LLMResponse[], media = attachments) => messageAdapter.buildMessages(current, media, {
+      protocol: options.protocol, anthropicOfficial: options.anthropicOfficial,
+      reasoningHistory: resolveCatalogReasoningHistory({ model: options.model, provider: options.provider, protocol: options.protocol }),
+    })
+    let capacityOperationId: string | undefined
+    const recoverSources = prepared.source ? async (activeOptions: LLMOptions) => {
+      sourceStep?.observation.finish('failed')
+      const stepId = sourceStep!.modelStepId
+      capacityOperationId = await prepareSourceCapacity(ctx, prepared.source!, activeOptions)
+      prepared = await prepareModelHistory(ctx, fileRequestId!, history)
+      projectedHistory = prepared.historyForBuild.filter(message => !message.modelExcluded && !message.revoked)
+      sourceStep = sourceModelStep(ctx, prepared.source!, projectedHistory, prepared.fileProjection, activeOptions,
+        parentObservation, stepReason, stepId)
+      activeOptions.sourceCall = sourceStep.boundary; activeOptions.observation = sourceStep.observation
+      return build(projectedHistory, prepared.attachments)
+    } : undefined
+    const llmAdapter = contextRecoveryAdapter(ctx, () => projectedHistory, build, recoverSources)
     const messages = messageAdapter.buildMessages(
-      (enriched ? [
-        ...temporaryPrompts,
-        ...(enriched.capabilitiesHint ? [{ id: 'file-input-capabilities', role: 'system' as const, content: enriched.capabilitiesHint, createdAt: Date.now(), updateAt: Date.now() }] : []),
-        ...enriched.history,
-      ] : initial).filter((m) => !m.modelExcluded && !m.revoked),
+      readyHistory,
       attachments,
-      { anthropicOfficial: options.anthropicOfficial, protocol: options.protocol },
+      { anthropicOfficial: options.anthropicOfficial, protocol: options.protocol,
+        reasoningHistory: resolveCatalogReasoningHistory({ model: options.model, provider: options.provider, protocol: options.protocol }),
+      },
     )
     if (Buffer.byteLength(JSON.stringify({ messages, tools: runtime.builtSenses })) > 32 * 1024 * 1024) throw new ClassifiedError({ errorId: ErrorId.REQUEST_INPUT_TOO_LARGE, message: '序列化请求超过 32 MiB', userMessage: '本次请求内容过大，请减少文件内容输入', category: 'validation', source: 'chat' })
     let content = '',
@@ -381,6 +443,7 @@ async function* handleRequestLocal(
     let stopReason: string | undefined
     let hasCompletedServerTool = false
     const blocks = new ThinkingBlockAssembler()
+    let callCompleted = false
     try {
       if (ctx.global.stream) {
         const assembler = new SenseCallAssembler()
@@ -403,12 +466,14 @@ async function* handleRequestLocal(
         options.observation?.response(response)
         content = messageAdapter.content(response) || ''
         thinking = messageAdapter.thinking?.(response) || ''
+        for (const delta of completeThinkingBlockDeltas(messageAdapter.thinkingBlocks?.(response))) blocks.push(delta)
         calls = senseAdapter.senseCalls(response)
         stopReason = messageAdapter.stopReason?.(response)
         hasCompletedServerTool = (messageAdapter.serverToolCalls?.(response) ?? []).some(
           (c) => c.status === 'completed',
         )
       }
+      callCompleted = true
     } catch (error) {
       if (options.signal?.aborted) throw error
       const status =
@@ -439,6 +504,9 @@ async function* handleRequestLocal(
         ...(status ? { detail: `upstream HTTP ${status}` } : {}),
         cause: error,
       })
+    } finally {
+      if (capacityOperationId && prepared.source) failSourceCapacity(prepared.source, capacityOperationId, options.signal)
+      sourceStep?.observation.finish(callCompleted ? 'completed' : options.signal?.aborted ? 'cancelled' : 'failed')
     }
     options.signal?.throwIfAborted()
     if (ctx.requestToolPhase?.length && (calls.length !== 1 || !ctx.requestToolPhase.includes(calls[0]!.name ?? ''))) {
@@ -474,12 +542,13 @@ async function* handleRequestLocal(
     // can replace them and resume without replaying any preceding tool.
     const questions = complete.filter(call => call.name === 'ask_user_question')
     if (questions.length) {
-      yield { type: 'stream', contentDelta: content, thinkingDelta: '', senseDelta: complete.map((call, index) => ({ ...call, index })) }
+      yield { type: 'stream', contentDelta: content, thinkingDelta: thinking,
+        thinkingBlocksDelta: completeThinkingBlockDeltas(blocks.toArray()), senseDelta: complete.map((call, index) => ({ ...call, index })) }
       // The normal tool middleware executes these calls once and checkpoint
       // persists their results; do not also execute them in this local loop.
       return
     }
-    history.push({
+    const assistantMessage: LLMResponse = {
       id: randomUUID(),
       role: 'assistant',
       content,
@@ -488,17 +557,29 @@ async function* handleRequestLocal(
       senseCalls: complete,
       createdAt: now,
       updateAt: now,
-    })
+    }
+    if (sourceRun && runId) sourceRun.repo.saveRunMessage(sourceRun.authority, sourceRun.input.scopeId, runId, assistantMessage, 'completed')
+    history.push(assistantMessage)
+    const toolMessages = new Map(complete.map(call => {
+      const message: LLMResponse = { id: call.id, role: 'sense', content: '', createdAt: now, updateAt: now }
+      if (sourceRun && runId) sourceRun.repo.saveRunMessage(sourceRun.authority, sourceRun.input.scopeId, runId, message, 'planned')
+      return [call.id, message] as const
+    }))
     for (const call of complete) {
       if (options.signal?.aborted) throw new Error('Request cancelled')
-      const result = yield* executeRequestTool(ctx, call.name, call.arguments, call.id)
-      history.push({
-        id: call.id,
-        role: 'sense',
-        content: result,
-        createdAt: now,
-        updateAt: Date.now(),
-      })
+      const toolMessage = toolMessages.get(call.id)!
+      const execution = executeRequestTool(ctx, call.name, call.arguments, call.id)
+      let step = await execution.next()
+      while (!step.done) {
+        if (step.value.type === 'sense_started' && sourceRun && runId)
+          sourceRun.repo.saveRunMessage(sourceRun.authority, sourceRun.input.scopeId, runId, toolMessage, 'started')
+        yield step.value
+        step = await execution.next()
+      }
+      toolMessage.content = step.value
+      toolMessage.updateAt = Date.now()
+      if (sourceRun && runId) sourceRun.repo.saveRunMessage(sourceRun.authority, sourceRun.input.scopeId, runId, toolMessage, 'completed')
+      history.push(toolMessage)
       // A plugin may normally complete this request after its tool result is recorded.
       // Do not start another provider turn or execute remaining calls.
       if (ctx.requestComplete || ctx.soul.yieldTurn) return
@@ -671,6 +752,7 @@ async function* handleNonStream(
   // 提取内容和思考
   const content = messageAdapter.content(response)
   const thinking = messageAdapter.thinking?.(response)
+  const thinkingBlocks = messageAdapter.thinkingBlocks?.(response)
   const stopReason = messageAdapter.stopReason?.(response)
   const serverToolCalls = messageAdapter.serverToolCalls?.(response) ?? []
   const serverToolDeltas: ServerToolCallDelta[] = serverToolCalls.flatMap((c): ServerToolCallDelta[] => [
@@ -718,6 +800,7 @@ async function* handleNonStream(
     provider: ctx.runtime?.brain.provider ?? '',
     content,
     thinking,
+    thinkingBlocks,
     senseCalls: senseDelta.map((sc) => ({
       id: sc.id,
       name: sc.name ?? '',
@@ -735,6 +818,7 @@ async function* handleNonStream(
     yield {
       type: 'stream',
       thinkingDelta: thinking || '',
+      thinkingBlocksDelta: completeThinkingBlockDeltas(thinkingBlocks),
       contentDelta: content || '',
       senseDelta: senseDelta.length > 0 ? senseDelta : undefined,
       serverToolDeltas: serverToolDeltas.length > 0 ? serverToolDeltas : undefined,
@@ -804,3 +888,4 @@ async function dispatchStop(
     },
   )
 }
+import { DEFAULT_GLOBAL_OPTIONS } from '@chery/protocol'

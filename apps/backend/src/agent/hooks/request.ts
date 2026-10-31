@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { retainContinuousChild } from '@/agent/spawnBroker.js'
 import type { MiddlewareContext, UserInputEntry } from '@/core/middleware/types.js'
 import { immutableSnapshot, type IngressRequestContext } from '@/service/ingress/api.js'
 import { getSense, getSenseOrigin, getSenseRegistryVersion } from '@/core/sense/senseRegistry.js'
@@ -60,10 +61,11 @@ export async function prepareRequest(ctx: MiddlewareContext, input: UserInputEnt
     current = getChat(current.parent_chat_id)
     if (!current) throw new Error('APP_ACCESS_DENIED: 无法恢复父会话身份')
   }
-  const identity = storedIdentity ?? (chat?.parent_chat_id ? undefined : input.requestIdentity) ?? { source: 'web' as const }
+  const identity = (chat?.parent_chat_id ? storedIdentity : input.requestIdentity ?? storedIdentity) ?? { source: 'web' as const }
   if (chat && !chat.parent_chat_id && input.requestIdentity?.source === 'plugin') {
     updateChatMetadata(ctx.soul.chatId, { managedRequestIdentity: identity })
   }
+  if (identity.source === 'plugin' && identity.channel === 'qq') retainContinuousChild(ctx.soul.chatId)
   const requestPluginSkills = getRequestPluginSkills(identity, getChatSkillFilter(ctx.soul.chatId))
   const unavailable = [...(runtime.unavailableTools ?? [])]
   runtime.builtSenses = runtime.builtSenses.filter((definition) => {
@@ -183,6 +185,30 @@ export async function prepareRequest(ctx: MiddlewareContext, input: UserInputEnt
   )
     throw new Error('INVALID_REQUEST_CONTEXT')
   ctx.requestView = immutableSnapshot({ ...ctx.requestView, contexts })
+  refreshRequestCapabilities(ctx)
+}
+/** Same runtime and hook lifecycle, but capabilities follow the actual per-step tool subset. */
+export function refreshRequestCapabilities(ctx: MiddlewareContext): void {
+  if (!ctx.requestView || !ctx.runtime) return
+  const runtime = ctx.runtime, identity = ctx.requestView.identity
+  const tools = runtime.builtSenses.filter(tool => !ctx.requestToolPhase || ctx.requestToolPhase.includes(tool.function.name))
+  const context = runtime.configSnapshot ? fileCapabilityContext(ctx.soul.chatId,
+    { config: runtime.configSnapshot, runtimeSelection: runtime.selectionSnapshot }) : undefined
+  if (context?.runtime && context.roleName) {
+    context.runtime.executableTools = { [context.roleName]: tools.map(tool => tool.function.name) }
+    if (!tools.some(tool => tool.function.name === 'spawn_role') && context.runtime.dispatchRoster) context.runtime.dispatchRoster[context.roleName] = []
+  }
+  const fileCapabilities = context ? resolveFileCapabilities({ ...context, explicit: undefined }) : undefined
+  const nextTools = tools.map(definition => {
+    const name = definition.function.name, origin = getSenseOrigin(name)
+    if (managedToolDenied(name, identity)) throw new Error('IDENTITY_REJECTED')
+    return { name, source: origin?.source ?? 'builtin', pluginId: origin?.pluginId, pluginVersion: origin?.pluginVersion,
+      definition, supervisionLevel: runtime.senseTable.get(name)?.supervisionLevel ?? 0 }
+  })
+  if (JSON.stringify(ctx.requestView.fileCapabilities) === JSON.stringify(fileCapabilities) &&
+    ctx.requestView.tools.length === nextTools.length &&
+    ctx.requestView.tools.every((tool, i) => tool.name === nextTools[i]!.name && tool.definition === nextTools[i]!.definition && tool.supervisionLevel === nextTools[i]!.supervisionLevel)) return
+  ctx.requestView = immutableSnapshot({ ...ctx.requestView, fileCapabilities, tools: nextTools })
 }
 export async function finishRequest(
   ctx: MiddlewareContext,
