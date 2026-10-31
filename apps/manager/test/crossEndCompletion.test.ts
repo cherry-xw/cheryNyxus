@@ -69,8 +69,8 @@ describe('F09 Manager external owner and desired/applied state', () => {
     const input = { protocolVersion: 1, url: 'wss://relay.example/control/backend', backendId: 'test-device', displayName: 'Test', keyFile: root + '/key.json', authorizationFile: root + '/auth.json', ratholeConfigPath: root + '/client.toml', ratholeServerAddr: 'relay.example:2333', proofIssuer: 'https://relay.example', statusFile, encryptedTransport: '[client.transport]\ntype = "noise"\n[client.transport.noise]\nremote_public_key = "' + Buffer.alloc(32, 7).toString('base64') + '"\n' }
     const desired = await store.save(input) as { desiredRevision: string }; cleanup.push(() => rm(root, { recursive: true, force: true }))
     const f = await fixture({ relayClientConfigFile: clientFile, relayStatusFile: statusFile })
-    const state = { protocolVersion: 2, instanceId: 'i'.repeat(32), backendId: 'test-device', status: 'online', configVersion: 1, desiredRevision: desired.desiredRevision, appliedRevision: desired.desiredRevision, leaseId: 'l'.repeat(32), updatedAt: new Date().toISOString() }
-    for (const [change, status, reason] of [[{}, 'online', undefined], [{ updatedAt: new Date(0).toISOString() }, 'unknown', 'stale_status'], [{ backendId: 'foreign-device' }, 'unknown', 'device_identity_mismatch'], [{ desiredRevision: 'not-applied', appliedRevision: 'not-applied' }, 'unknown', 'configuration_not_applied'], [{ extra: 'secret' }, 'unknown', 'invalid_status']] as const) {
+    const state = { protocolVersion: 3, instanceId: 'i'.repeat(32), backendId: 'test-device', status: 'online', configVersion: 1, desiredRevision: desired.desiredRevision, appliedRevision: desired.desiredRevision, leaseId: 'l'.repeat(32), leaseExpiresAt: new Date(Date.now() + 45_000).toISOString(), updatedAt: new Date().toISOString() }
+    for (const [change, status, reason] of [[{}, 'online', undefined], [{ leaseExpiresAt: new Date(0).toISOString() }, 'unknown', 'stale_status'], [{ backendId: 'foreign-device' }, 'unknown', 'device_identity_mismatch'], [{ desiredRevision: 'not-applied', appliedRevision: 'not-applied' }, 'unknown', 'configuration_not_applied'], [{ extra: 'secret' }, 'unknown', 'invalid_status']] as const) {
       await writeFile(statusFile, JSON.stringify({ ...state, ...change })); const view = await (await f.request('/api/status')).json() as any
       expect(view.relay.status).toBe(status); if (reason) expect(view.relay.reason).toBe(reason)
     }
@@ -78,7 +78,14 @@ describe('F09 Manager external owner and desired/applied state', () => {
     expect((await f.request('/api/relay/client-config', 'PUT', { ...input, displayName: 'Changed' })).status).toBe(200)
     expect((await (await f.request('/api/status')).json() as any).relay.reason).toBe('configuration_not_applied')
     expect(f.manager.controller.isManaged('rathole')).toBe(false)
-    expect((await f.request('/api/relay/device-operation', 'POST', { type: 'policy.get' })).status).toBe(503)
+    const missingCredentials = await f.request('/api/relay/device-operation', 'POST', { type: 'policy.get' })
+    expect(missingCredentials.status).toBe(502)
+    expect(await missingCredentials.json()).toMatchObject({ error: { code: 'backend_auth_failed' } })
+    // Provision only this fixture so the next failure specifically tests an absent Backend.
+    await new CredentialStore({ configFile: f.configFile, credentialsFile: f.credentialsFile }).rotate({ username: 'machine', password: 'synthetic-machine-password' })
+    const disconnected = await f.request('/api/relay/device-operation', 'POST', { type: 'policy.get' })
+    expect(disconnected.status).toBe(503)
+    expect(await disconnected.json()).toMatchObject({ error: { code: 'unavailable' } })
     expect((await f.request('/api/auth/me')).status).toBe(200)
   })
 })
@@ -88,7 +95,7 @@ describe('F09/F13 strict Backend status readback', () => {
     const root = '/home/chery/.hermes/cache/scratch/login-development/backend-status-' + randomBytes(12).toString('hex'); await (await import('node:fs/promises')).mkdir(root, { recursive: true }); cleanup.push(() => rm(root, { recursive: true, force: true }))
     const file = root + '/status.json', f = await fixture({ backendStatusFile: file })
     await writeFile(f.configFile, yaml.dump({ server: { host: '10.2.3.6', port, webPort: port } }))
-    const valid = { protocolVersion: 1, instanceId: 'i'.repeat(32), status: 'running', addresses: { local: { httpPort: port, websocketPort: port } }, agents: { initializedChats: 0, runningChats: 0, activeRuns: 0 }, updatedAt: new Date().toISOString() }
+    const valid = { protocolVersion: 2, heartbeatIntervalMs: 2_000, instanceId: 'i'.repeat(32), status: 'running', addresses: { local: { httpPort: port, websocketPort: port } }, agents: { initializedChats: 0, runningChats: 0, activeRuns: 0 }, updatedAt: new Date().toISOString() }
     for (const [change, expected] of [[{}, 'running'], [{ protocolVersion: 0 }, 'reachable-not-verified'], [{ updatedAt: new Date(0).toISOString() }, 'reachable-not-verified'], [{ addresses: { local: { httpPort: 1, websocketPort: 1 } } }, 'reachable-not-verified'], [{ agents: { secret: 'reject' } }, 'reachable-not-verified']] as const) {
       await writeFile(file, JSON.stringify({ ...valid, ...change })); expect((await (await f.request('/api/status')).json() as any).backend.status).toBe(expected)
     }

@@ -2,7 +2,7 @@
 
 Manager 与 Backend 属于同一产品的配套服务，始终遵循“同环境一体运行（同进同退）”边界——要么同在一个 Docker 容器内，要么同在宿主系统内。常规启动顺序固定为：**项目启动 → Manager 先启动 → 加载插件 → 由默认预装的 Backend 管理插件按持久化开关（`manager.backendPlugin.autoStart`，默认 `true`）以本地子进程拉起并监控 Backend**。Manager 管理登录与 AI Web 业务登录为两套完全独立的使用体系，不共享会话、不相互转授权限。Backend 未启动、构建失败或崩溃时 Manager 仍始终可用；整体关闭 Manager 进程会按进程组清理其拥有的 Backend 进程树；关闭管理网页不停止任何服务。
 
-当 Backend 由 Manager 作为受管子进程拉起时（注入 `CHERY_MANAGED_BY_MANAGER=1`），崩溃恢复统一由 Manager 的 `BackendSupervisor` 单层执行：**最多自动重试 3 次，退避间隔依次为 5s、15s、30s**；仅当 Backend 监听就绪且**连续稳定运行满 5 分钟**后才清零连续失败计数；重试等待期间支持手动“取消重试”，达到 3 次上限后停留在 `failed` 状态保留日志与错误原因，等待管理员手动点击“启动 Backend”开启新一轮尝试（guardian 内部无限重试循环在受管模式下自动让出，防止多层重试绕过 3 次上限）。第一阶段仅开放启动、取消重试、状态/资源/日志监控与配置，不开放运行中 Backend 的停止操作（停止流程与 Agent 指令监控归入第二阶段专项计划）。
+当 Backend 由 Manager 作为受管子进程拉起时（注入 `CHERY_MANAGED_BY_MANAGER=1`），崩溃恢复统一由 Manager 的 `BackendSupervisor` 单层执行：**最多自动重试 3 次，退避间隔依次为 5s、15s、30s**；仅当 Backend 监听就绪且**连续稳定运行满 5 分钟**后才清零连续失败计数；重试等待期间支持手动“取消重试”，达到 3 次上限后停留在 `failed` 状态保留日志与错误原因，等待管理员手动点击“启动 Backend”开启新一轮尝试（guardian 内部无限重试循环在受管模式下自动让出，防止多层重试绕过 3 次上限）。停止、取消关闭、强制中断与插件停用遵守[停止控制约定](../shared/architecture/manager-management.md#已批准的停止控制约定实施中)，源码实现不等于生产部署或界面验收。
 
 开发运行 `pnpm dev`：Manager 使用源码入口，Backend 由开发脚本构建并热重载。正式本机先运行 `pnpm build` 和 `pnpm manager:build`，再运行 `pnpm manager:cli`。systemd、Windows 启动与 Docker 都以 Manager 为配套服务入口，不再另起第二份 Backend。直接 Backend 入口保留给显式维护和诊断，不是常规整套启动方式。
 
@@ -29,7 +29,7 @@ Backend 内部入口为 `apps/backend/src/index.ts` 构建出的 `apps/backend/d
 ```text
 auth setup / auth reset       设置或恢复独立 Manager 账号
 info / status                 从隔离的机器接口读取状态
-start/stop/restart [backend|rathole]  控制 Manager 子进程（external 模式下 Backend 由部署工具管理）
+start/stop/restart backend     控制受管 Backend（external 模式明确拒绝；rathole 控制也明确拒绝）
 service install / uninstall   安装或卸载本地服务入口
 ```
 
@@ -37,8 +37,10 @@ service install / uninstall   安装或卸载本地服务入口
 
 ## 后端凭据与状态
 
-登录后通过 `/api/credentials` 查看后端凭据、通过 `/api/credentials/rotate` 更新。这是后端账号，不是 Manager 账号；后端凭据仍在 `.chery/manager-credentials.json`（Unix 0600），后端配置只保存 scrypt 哈希。轮换后仅重启 Manager 自己的子进程；外部启动的后端不拉起副本。随后执行 challenge/login 自检，明确区分 verified、unreachable 和 stale，不把保存成功等同于后端已生效。
+登录后通过 `/api/credentials` 查看脱敏的机器凭据诊断。这不是 Manager 账号或业务登录账号；机器身份必须由部署者显式配置，Manager 启动不自动创建、迁移或覆盖它，浏览器轮换明确返回 409。已有 `.chery/manager-credentials.json` 及其独立密钥文件保留，配置只保存密码哈希。维护时才按固定 Backend 地址进行机器登录和能力发现，失败不退出 Manager 登录，也不重发结果未知的写操作。认证与错误约定见[Manager 认证协议](../shared/protocol/manager-auth.md)。
 
-`/api/status` 与 `/api/connection` 展示 Manager、后端和 rathole 状态。后端检测读取状态文件并探测实际配置端口；文件和端口只提供运行摘要，不包含认证秘密。Manager 本身的登录、进程控制和凭据保存不依赖后端在线。
+`/api/status` 与 `/api/connection` 分别展示 Manager、Backend 运行摘要和中转记录；`maintenance` 只记录实际维护请求的最近检查结果，初始未检查。Backend 上报有效性和中转确认期限的唯一规则见[运行状态记录约定](../shared/protocol/manager-auth.md#运行状态记录约定)。端口可连接不代表业务已就绪；记录过期不代表进程退出，也不触发启停。
+
+部署用 `CHERY_BACKEND_STATUS_FILE` 指定 Backend 状态文件，`CHERY_RELAY_CLIENT_CONFIG_FILE` 指定设备客户端固定配置文件；Manager 与 Backend 必须看到相同配置和状态文件，`CHERY_RELAY_STATUS_FILE` 可明确指定 Manager 读取的中转状态文件，否则使用设备配置中的 `statusFile`。设备配置保存只保存并读回，不自动重启；中转健康检查不带认证材料，不跟随重定向，不能据此显示隧道已就绪。Manager 本身登录和本地设置保存不依赖 Backend 在线。
 
 自动回归运行 `pnpm manager:test`，HTTP/OIDC 与入口测试在 [`apps/manager/test/`](../../apps/manager/test)，辅助函数回归在 [`apps/manager/test/server.test.ts`](../../apps/manager/test/server.test.ts)。真实 OIDC、跨设备访问、Linux systemd 和 Windows 托盘行为留给最终环境验证；不以构建通过代替部署证据。

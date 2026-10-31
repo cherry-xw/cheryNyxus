@@ -85,7 +85,7 @@ describe('Manager authentication HTTP', () => {
     expect(login.headers.get('x-chery-manager-token')).toBeNull()
     const Cookie = session(login), headers = { Cookie, Origin: f.base, 'Content-Type': 'application/json' }
     expect(await (await f.request('/api/auth/me', { headers })).json()).toMatchObject({ authenticated: true, username: 'owner', provider: 'password' })
-    expect(await (await f.request('/api/status', { headers })).json()).toMatchObject({ backend: { status: 'stopped' } })
+    expect(await (await f.request('/api/status', { headers })).json()).toMatchObject({ backend: { status: 'unknown' }, backendPlugin: { running: false }, maintenance: { status: 'not_checked' } })
     for (const action of ['start', 'restart', 'stop']) expect((await f.request(`/api/backend/${action}`, { method: 'POST', headers })).status).toBe(200)
     const rotated = await f.request('/api/credentials/rotate', { method: 'POST', headers, body: JSON.stringify({ username: 'backend-owner', password: 'backend-test-password' }) })
     const rotatedBody = await rotated.json()

@@ -1,4 +1,3 @@
-import { CredentialStore } from './credentials.js'
 import { networkInterfaces } from 'node:os'
 import { createManager, isLoopbackHost, readManagerHostFromConfig } from './server.js'
 import { runManagerCli } from './cli.js'
@@ -15,10 +14,6 @@ async function startManager(): Promise<void> {
   // 监听地址优先级：CHERY_MANAGER_HOST 环境变量 > config.yaml 的 manager.host > 局域网。
   const cheryDir = process.env.CHERY_DIR ?? process.cwd()
   const configFile = `${cheryDir}/.chery/config.yaml`
-  await new CredentialStore({
-    configFile,
-    credentialsFile: `${cheryDir}/.chery/manager-credentials.json`,
-  }).ensureInternal()
   const configuredHost = await readManagerHostFromConfig(configFile)
   const host = process.env.CHERY_MANAGER_HOST || configuredHost || '0.0.0.0'
   const portOption =
@@ -35,6 +30,7 @@ async function startManager(): Promise<void> {
     plugins: await readManagerPlugins(configFile),
     controlToken: process.env.CHERY_MANAGER_TOKEN,
     relayStatusFile: process.env.CHERY_RELAY_STATUS_FILE,
+    relayClientConfigFile: process.env.CHERY_RELAY_CLIENT_CONFIG_FILE,
     backendStatusFile: process.env.CHERY_BACKEND_STATUS_FILE,
   })
   await manager.listen()
