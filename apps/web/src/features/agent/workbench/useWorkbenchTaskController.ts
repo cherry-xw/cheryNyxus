@@ -1,4 +1,5 @@
 import { computed, ref, watch, type MaybeRefOrGetter, toValue } from 'vue'
+import { uuid } from '@/utils/uuid'
 import { ElMessage } from 'element-plus'
 import { agentApi, type RootTimelineSnapshot } from '@/application/backend/public'
 import { useAgentsStore, useChatSessionsStore } from '@/application/public'
@@ -172,7 +173,7 @@ export function useWorkbenchTaskController(options: {
     if (!taskId || taskControlPending.value) return
     taskControlPending.value = true
     try {
-      await agentApi.abortTask(taskId, crypto.randomUUID())
+      await agentApi.abortTask(taskId, uuid())
       taskTimeline.value = await agentApi.getTaskTimeline({ taskId, view: 'tree' })
     } catch (cause) {
       ElMessage.error(cause instanceof Error ? cause.message : '暂停全部分支失败')
