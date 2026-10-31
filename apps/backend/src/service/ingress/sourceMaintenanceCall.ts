@@ -23,7 +23,8 @@ export function sourceMaintenanceCall(repo: SourceContextRepository, authority: 
   check()
   const operation = input.kind === 'learning' ? repo.learningStatus(authority, input.scopeId, input.operationId) : repo.summaryStatus(authority, input.scopeId, input.operationId)
   const snapshot = repo.snapshot(authority, input.scopeId, operation.snapshotId)
-  if (snapshot.maintenancePurpose !== ('purpose' in operation ? operation.purpose : 'learning') || snapshot.requestId !== input.operationId || !['pending', 'running'].includes(operation.status)) sourceContextError('PERMISSION_DENIED')
+  const snapshotPurpose = input.kind === 'learning' ? 'learning' : ('purpose' in operation ? operation.purpose : undefined)
+  if (snapshot.maintenancePurpose !== snapshotPurpose || snapshot.requestId !== input.operationId || !['pending', 'running'].includes(operation.status)) sourceContextError('PERMISSION_DENIED')
   const modelStepId = `maintenance-step-${randomUUID()}`
   let attempt: SourceAttempt | undefined, complete: ReturnType<SourceContextRepository['attemptCompletion']> | undefined
   let budget: InputTokenPreflight | undefined, responseSeen = false, usage: SourceAttempt['usage'], protocol = ''

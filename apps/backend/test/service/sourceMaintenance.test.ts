@@ -19,6 +19,31 @@ function fixture() {
 const attempt = (f: ReturnType<typeof fixture>) => JSON.parse((f.db.prepare('SELECT data_json FROM source_attempts').get() as {data_json:string}).data_json)
 
 describe('fixed QQ source maintenance without a member execution identity', () => {
+  it.each(['automatic','candidate'] as const)('allows a %s learning operation to invoke its learning snapshot without a member turn', purpose => {
+    const f=fixture()
+    try {
+      const prepared=f.repo.prepareLearning(f.auth,f.scope.scopeId,{operationId:'learning-op',purpose,qqConfigRevision:1,afterOrdinal:0,afterRun:0,completedRequests:[]})!
+      expect(f.repo.snapshot(f.auth,f.scope.scopeId,prepared.operation.snapshotId).maintenancePurpose).toBe('learning')
+      const call=sourceMaintenanceCall(f.repo,f.auth,{...f.input,operationId:'learning-op',kind:'learning'})
+      call.sourceCall!.prepare(f.body,'openai-chat-completions')
+      call.observation!.start('offline-model');call.observation!.response({usage:{prompt_tokens:6,completion_tokens:2,total_tokens:8}});call.observation!.finish('completed')
+      expect(attempt(f)).toMatchObject({state:'responded',outcomeKnown:true,usage:{totalTokens:8}})
+      expect(f.db.prepare('SELECT COUNT(*) AS n FROM source_turns').get()).toEqual({n:0})
+      expect(f.db.prepare('SELECT COUNT(*) AS n FROM source_runs').get()).toEqual({n:0})
+      expect(()=>sourceMaintenanceCall(f.repo,f.auth,{...f.input,operationId:'learning-op'})).toThrow()
+      expect(()=>sourceMaintenanceCall(f.repo,f.auth,{...f.input,kind:'learning'})).toThrow()
+    } finally {f.db.close()}
+  })
+  it('rejects a learning operation whose snapshot has a different maintenance type',()=>{
+    const f=fixture()
+    try {
+      const prepared=f.repo.prepareLearning(f.auth,f.scope.scopeId,{operationId:'learning-op',purpose:'automatic',qqConfigRevision:1,afterOrdinal:0,afterRun:0,completedRequests:[]})!
+      const snapshot=f.repo.snapshot(f.auth,f.scope.scopeId,prepared.operation.snapshotId)
+      f.db.prepare('UPDATE source_snapshots SET data_json=? WHERE snapshot_id=?').run(JSON.stringify({...snapshot,maintenancePurpose:'discussion'}),snapshot.snapshotId)
+      expect(()=>sourceMaintenanceCall(f.repo,f.auth,{...f.input,operationId:'learning-op',kind:'learning'})).toThrow('PERMISSION_DENIED')
+      expect(f.db.prepare('SELECT COUNT(*) AS n FROM source_attempts').get()).toEqual({n:0})
+    } finally {f.db.close()}
+  })
   it('records the final maintenance input and call outcome without creating runs or advancing user adoption', () => {
     const f = fixture()
     try {
