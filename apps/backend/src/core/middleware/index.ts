@@ -154,28 +154,7 @@ export default class AgentSession<T = unknown> {
     try {
       if (options?.resumeMeta) await prepareRequest(this.ctx, { content: '', time: Date.now(), ...options.resumeMeta })
       yield* this.pipeline.run()
-      if (compactRequested) {
-        const tokenCount = this.journal
-          .getMessages()
-          .reduce((total, message) => total + message.content.length, 0)
-        await dispatch(
-          'PreCompact',
-          { chatId: this.ctx.soul.chatId, tokenCount },
-          requestHookContext(this.ctx),
-        )
-        this.journal.compactToLatestSummary()
-        await dispatch(
-          'PostCompact',
-          {
-            chatId: this.ctx.soul.chatId,
-            summary:
-              this.journal.getMessages().findLast((message) => message.contextCompaction)
-                ?.content ?? '',
-            tokenCount,
-          },
-          requestHookContext(this.ctx),
-        )
-      }
+
     } finally {
       releaseReservedInputs(this.ctx.soul.chatId)
       await finishRequest(this.ctx, this.pipeline.isAbortRequested() ? 'cancelled' : 'failed')
