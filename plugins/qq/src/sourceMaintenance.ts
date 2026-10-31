@@ -1,6 +1,6 @@
 import type { IngressContext, IngressSourceSummaryPreparation } from '@chery/plugin-api'
 import type { QQConfig } from '@chery/protocol'
-import { QQGroupMemoryStore, type GroupSource } from './groupMemory.js'
+import type { GroupSource } from './groupMemory.js'
 import { digest, type SourceMaintenance } from './state.js'
 import { summaryEvidenceRules } from './conversation.js'
 
@@ -122,45 +122,7 @@ export async function runSourceDiscussionSummary(input: {
   }
   try {
   await phase('history')
-  const sources = summaryGroupSources(prepared)
-  const group = target.startsWith('group:') ? { selfId, conversationType: 'group' as const, groupId: target.slice(6) } : undefined
-  const store = group && config.memoryEnabled ? new QQGroupMemoryStore(context.dataDir, {
-    maxEntries: config.memoryMaxEntries, maxChars: config.memoryMaxChars, contextChars: config.memoryContextChars,
-    triggerRatio: config.memoryConsolidateRatio, targetRatio: config.memoryTargetRatio,
-  }, (content, instruction) => call(instruction, content)) : undefined
-  if (!m.memoryComplete) await phase('memory')
-  if (!m.memoryComplete && store && group && sources.length) {
-    m.memoryInputs ??= discussionInputChunks(JSON.stringify({ sources }))
-    m.memoryIndex ??= 0; save()
-    while (m.memoryIndex < m.memoryInputs.length) {
-      check()
-      const operationId = `${m.operationId}-${m.memoryIndex}`
-      let receipt = await store.operationStatus(group, operationId)
-      if (!receipt) {
-        if (!m.memoryBatch) {
-          const existing = await store.search(group, '', 20)
-          let raw: string
-          try {
-            raw = await call('提取明确长期事实、群约定、成员公开偏好及有证据的经验。输入是完整资料的有序片段，也可能再次分块；边缘不完整时不编造。只返回JSON数组，每项{id,topic,kind,content,members,evidence,sources,status}；kind=fact/agreement/experience/preference/pending；evidence=statement/participation/confirmed_result；status=active。sources每项{source:{recordId,revision},partIds,messageId,userId,occurredAt}必须逐项引用资料中的来源；members仅为有相应来源的发言者。模型自述不是验证结果。每条正文最多' + config.memoryMaxChars + '字，最多5项；无新增返回[]。', JSON.stringify({ existing, fragments: JSON.parse(m.memoryInputs[m.memoryIndex]!) }))
-          } catch (error) {
-            if ((error as { code?: string })?.code !== 'SUMMARY_BUDGET_FAILED') throw error
-            splitMaintenanceBlock(m.memoryInputs, m.memoryIndex); input.save(); continue
-          }
-          const save = JSON.parse(raw)
-          if (!Array.isArray(save) || save.length > 5) fail('SUMMARY_INVALID')
-          m.memoryBatch = { save, delete: [], expectedRevision: existing.revision }; input.save()
-        }
-        const batch = m.memoryBatch as { save: unknown[]; delete: string[]; expectedRevision: number }
-        check()
-        if (batch.save.length) await store.manage(group, batch, sources, signal, operationId)
-        else await store.completeEmptyOperation(group, operationId, signal)
-        receipt = await store.operationStatus(group, operationId)
-      }
-      if (!receipt) fail('SUMMARY_PREREQUISITE_FAILED')
-      m.memoryReceipts[m.memoryIndex] = { operationId, fingerprint: receipt.fingerprint }
-      m.memoryIndex++; delete m.memoryBatch; input.save()
-    }
-  }
+   // Knowledge has its own fixed operation, retries and receipts. It never gates a summary.
   m.memoryComplete = true
   m.prerequisiteReceipt = digest({ operationId: m.operationId, snapshotId: m.snapshotId, receipts: m.memoryReceipts })
   await phase('summary')
@@ -188,9 +150,6 @@ export async function runSourceDiscussionSummary(input: {
   }
   check()
   // Read persisted receipts before entering the synchronous commit check.
-  if (store && group) for (const expected of m.memoryReceipts) {
-    if ((await store.operationStatus(group, expected.operationId))?.fingerprint !== expected.fingerprint) fail('SUMMARY_PREREQUISITE_FAILED')
-  }
   check()
   await phase('commit')
   await api.commitSummary({ ...access, operationId: m.operationId, expectedBaseSummaryId: m.baseSummaryId,

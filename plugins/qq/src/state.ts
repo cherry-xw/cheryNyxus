@@ -6,6 +6,7 @@ import { MessagePartSchema, FileOperationRecordSchema, SourceScopeSchema, Source
   SourceHandlingSchema, SourceReceiptResultSchema } from '@chery/protocol'
 import { parseStored } from './files.js'
 import { FailureSchema, EntryFailureSchema } from './failure.js'
+import { LearningStateSchema } from './learningState.js'
 import {
   QQConfigSchema,
   QQEventSubmitRequestSchema,
@@ -158,6 +159,7 @@ export const StateSchema = z
       closedAt: z.number(), sourceScopeId: z.string(), summaryPending: z.boolean(), summaryRetryAt: z.number(),
        maintenance: SourceMaintenanceSchema.optional() }).strict()).default({}),
     observations: z.record(z.string(), z.object({ checks: z.array(z.number()).max(3600), lastReplyAt: z.number() }).strict()).default({}),
+    learning: LearningStateSchema.default(() => LearningStateSchema.parse({})),
     windows: z.record(
       z.string(),
       z.object({ remaining: z.number().int().min(0).max(5), expiresAt: z.number() }),
@@ -177,6 +179,7 @@ export function emptyState(): State {
     contextEpoch: '',
     imageSources: {},
     observations: {},
+    learning: LearningStateSchema.parse({}),
     jobs: [],
     outbox: [],
     seq: {},
