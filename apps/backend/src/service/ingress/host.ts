@@ -292,6 +292,22 @@ export class IngressHost {
           else this.authority.validateExecution(id, input.entryId, input.identity) },
       }
     }
+    const questionResumeAuthorization = (raw: import('./api.js').IngressQuestionResume) => {
+      requireActive(); requireCapability('channel.identity')
+      const input = z.object({ conversationKey: z.string().min(1).max(512), entryId: z.string().min(1),
+        identity: z.custom<import('./api.js').IngressIdentityHandle>(), runId: z.string().min(1).max(200),
+        commandId: z.string().uuid(), signal: z.custom<AbortSignal>().optional(),
+        sourceCapacity: z.custom<import('./api.js').IngressSourceCapacity>(value => typeof value === 'function').optional() }).strict().parse(raw)
+      if (!active.entries.has(input.entryId) || !active.conversations.has(input.conversationKey)) throw ingressError('IDENTITY_REJECTED')
+      const record = this.authority.validateExecution(id, input.entryId, input.identity)
+      const original = active.requests.get(input.runId)
+      if (record.purpose !== undefined || record.channel !== 'qq' || original?.channel !== 'qq' || original.entryId !== input.entryId ||
+        !original.subject || ['selfId','userId','conversationType','groupId'].some(field =>
+          original.subject![field as keyof typeof original.subject] !== record.subject[field as keyof typeof record.subject])) throw ingressError('IDENTITY_REJECTED')
+      const { conversationKey, identity, ...params } = input
+      return { conversationKey, params: { ...params, requestIdentity: this.authority.project(id, input.entryId, identity),
+        validateIdentity: () => { requireActive(); this.authority.validateExecution(id, input.entryId, identity) } } }
+    }
     const maintenanceAuthorization = async (input: import('./api.js').IngressSourceMaintenanceContext): Promise<import('./api.js').IngressSourceMaintenanceAuthorization> => {
       requireActive(); requireCapability('channel.identity')
       if (!active.entries.has(input.entryId)) throw ingressError('IDENTITY_REJECTED')
@@ -511,17 +527,27 @@ export class IngressHost {
               sourceCapacity:z.custom<import('./api.js').IngressSourceCapacity>(value=>typeof value==='function').optional(),
             answers:z.array(z.object({questionId:z.string().min(1).max(200),selectedLabels:z.array(z.string().max(1000)).max(4),freeText:z.string().max(20000).optional(),cancelled:z.boolean().optional()}).strict()).min(1).max(16)}).strict().parse(input)
           if (!core.answerQuestions || !active.entries.has(input.entryId) || !active.conversations.has(input.conversationKey)) throw ingressError('IDENTITY_REJECTED')
-          const record = this.authority.validate(id, input.entryId, input.identity)
+          const record = this.authority.validateExecution(id, input.entryId, input.identity)
           const original = active.requests.get(input.runId)
           if (record.purpose !== undefined || record.channel !== 'qq' || original?.channel !== 'qq' ||
             original.entryId !== input.entryId || !original.subject || ['selfId','userId','conversationType','groupId'].some(field => original.subject![field as keyof typeof original.subject] !== record.subject[field as keyof typeof record.subject])) throw ingressError('IDENTITY_REJECTED')
           const { conversationKey, identity, ...params } = input
           const requestIdentity = this.authority.project(id, input.entryId, identity)
           const result = await core.answerQuestions(id, conversationKey, { ...params, requestIdentity,
-            validateIdentity: () => { requireActive(); this.authority.validate(id, input.entryId, identity) } })
+            validateIdentity: () => { requireActive(); this.authority.validateExecution(id, input.entryId, identity) } })
           active.requests.set(result.runId, original)
           this.persistDelivery(active)
           return result
+        },
+        questionResumeStatus: async input => {
+          const { conversationKey, params } = questionResumeAuthorization(input)
+          if (!core.questionResumeStatus) throw ingressError('NOT_SUPPORTED')
+          return immutableSnapshot(await core.questionResumeStatus(id, conversationKey, params))
+        },
+        resumeQuestions: async input => {
+          const { conversationKey, params } = questionResumeAuthorization(input)
+          if (!core.resumeQuestions) throw ingressError('NOT_SUPPORTED')
+          return immutableSnapshot(await core.resumeQuestions(id, conversationKey, params))
         },
         submit: async (input: Parameters<IngressContext['core']['submit']>[0]) => {
           requireActive()

@@ -46,6 +46,8 @@ import { recordRunFact, recordTerminationFact } from './executionFacts.js'
 import { appendLiveTurnDelta, clearLiveRun, completeLiveTurn, startLiveTurn } from './liveTurns.js'
 import { loopLimitFeedback, runFailureFeedback } from '../errorCatalog.js'
 import { RunOutcomeReasonCode } from '@chery/protocol'
+import { getSourceTask, setSourceTaskState, sourceQuestionBatches } from '@/db/sourceTasks.js'
+import { questionBatchFacts } from '@/db/question.js'
 import type {
   StagedReverseChunkData,
   TurnCancelledNotificationData,
@@ -345,6 +347,7 @@ function* handleErrorChunk(
   context: StreamContext,
 ): Generator<Notification> {
   const { rid, chatId, runId } = context
+  setSourceTaskState(runId, 'failed')
   const info = errorChunk.errors.at(-1)
   // 原始 message 进日志；用户面按友好文案出。
   const raw = info?.message
@@ -468,8 +471,12 @@ function* handleDoneChunk(context: StreamContext, requestComplete = false, waiti
             : {}),
         }
       : undefined
-  const awaitingQuestions = hasPendingQuestionBatches(chatId)
-  const canResume = !requestComplete && !awaitingQuestions && computeCanResume(chatId)
+  const sourceTask = getSourceTask(runId)
+  const awaitingQuestions = sourceTask ? sourceQuestionBatches(runId).some(batch =>
+    questionBatchFacts(chatId, batch.batchId).some(question => question.status === 'pending')) : hasPendingQuestionBatches(chatId)
+  // QQ execution is request-scoped. Unanswered siblings must not pause a completed run.
+  const canResume = !sourceTask && !requestComplete && !awaitingQuestions && computeCanResume(chatId)
+  if (sourceTask) setSourceTaskState(runId, awaitingQuestions ? 'waiting' : 'completed')
   const completedAt = Date.now()
   recordRunFact({ chatId, runId, status: waitingForChild ? 'waiting' : canResume || awaitingQuestions ? 'paused' : 'completed' })
   // Canonical 与 Lite 共用同一时钟校准点；与 completion 同时取值，
@@ -628,6 +635,7 @@ function* handleStreamFailure(err: unknown, context: StreamContext): Generator<N
   // running（CRT「执行中」/ pet「工作中」）。此处补发终态让前端有机会复位。
   context.terminated = true
   const error = err as Error
+  setSourceTaskState(runId, isAgentAbortError(error) ? isAgentParkError(error) ? 'paused' : 'cancelled' : 'failed')
   const completedAt = Date.now()
   const canResume = getChat(chatId) ? computeCanResume(chatId) : true
   let terminalStatus: 'paused' | 'failed' | 'cancelled' = 'paused'

@@ -25,7 +25,10 @@ export function prepareSourceHistory(ctx: MiddlewareContext, history: LLMRespons
   const byId = new Map(records.map(record => [record.recordId, record]))
   const source: PreparedSourceHistory = { input, snapshot, repo, authority, records, fileInputs: [] }
   const tools = new Set(ctx.requestView!.tools.map(tool => tool.name).filter(name => !ctx.requestToolPhase || ctx.requestToolPhase.includes(name)))
-  const process = history.slice(anchor + 1).filter(message => !message.sourceInput && !message.revoked && !message.modelExcluded)
+  // Shared display history may contain later tasks. Only this request's durable
+  // execution records belong to its model input; the anchor is not an ownership boundary.
+  const saved = repo.completedRunMessages(authority, input.scopeId, input.requestId)
+  const process = saved.map(message => message.body)
   const now = snapshot.selectedAt
   const rendered: LLMResponse[] = []
   for (const [itemIndex, item] of snapshot.orderedItems.entries()) {

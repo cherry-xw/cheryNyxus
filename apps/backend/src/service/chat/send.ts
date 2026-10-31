@@ -137,7 +137,10 @@ export async function* handleChatSend(
   // 恢复场景撤回：仅 idle 时触发（运行中 send 只入队，不撤回）。
   // 撤回末尾整个当前周期 AI 响应（assistant think/content/tool + 整个 sense 群），
   // 发 staged.reverse chunk 通知客户端回滚，再 run 用新 prompt 重跑。
-  if (!agent.isRunning()) {
+  const sourceExecution = ingressExecution.getStore()
+  const independentQQ = sourceExecution?.sourceInput && sourceExecution.execution?.toolHistory === 'request' &&
+    sourceExecution.identity.source === 'plugin' && sourceExecution.identity.channel === 'qq'
+  if (!agent.isRunning() && !independentQQ) {
     const revokedIds = agent.revokeTrailingCycle()
     if (revokedIds.length > 0) {
       const baseRevision = getTimelineRevision(chatId)

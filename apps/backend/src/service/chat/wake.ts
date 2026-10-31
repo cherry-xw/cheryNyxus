@@ -19,6 +19,7 @@ import {
 } from '@/db/delivery.js'
 import {
   completeQuestionBatch,
+  questionBatchFacts,
   type CompletedQuestionBatch,
   type QuestionBatchAnswerInput,
 } from '@/db/question.js'
@@ -282,17 +283,20 @@ export function emitChildAbandoned(
 }
 
 /**
- * 原子完成一个持久化问题批次，并同步当前进程中的 agent journal。
- * DB 事务先写入全部 sense 答案和批次终态；随后设置 resumePending，并持久化完成事件。
+ * 完成持久化问题批次；普通 Web 随后同步 journal，QQ 只保存原任务事实。
  */
 export async function resolveQuestionBatch(
   chatId: string,
   batchId: string,
   answers: QuestionBatchAnswerInput[],
+  sourceRunId?: string,
 ): Promise<CompletedQuestionBatch> {
   assertChatExists(chatId)
 
-  const completed = completeQuestionBatch(chatId, batchId, answers)
+  const saved = completeQuestionBatch(chatId, batchId, answers)
+  const completed = sourceRunId && saved.alreadyCompleted ? { ...saved, answers: questionBatchFacts(chatId, batchId).map(fact => ({
+    questionId: fact.questionId, answerText: fact.answerText ?? '', cancelled: fact.status === 'cancelled',
+  })) } : saved
   const interaction = transitionInteraction(
     batchId,
     ['pending', 'resolving', 'blocked'],
@@ -311,20 +315,16 @@ export async function resolveQuestionBatch(
     eventKey: `answer:${batchId}`,
   })
 
-  updateChatMetadata(chatId, { resumePending: true })
-  try {
-    const builder = await ensureChat(chatId)
-    for (const answer of completed.answers) {
-      builder.completeSenseResult(answer.questionId, answer.answerText)
+  if (!sourceRunId) {
+    updateChatMetadata(chatId, { resumePending: true })
+    try {
+      const builder = await ensureChat(chatId)
+      for (const answer of completed.answers) builder.completeSenseResult(answer.questionId, answer.answerText)
+    } catch (cause) {
+      // A cold Web resume rebuilds these saved results.
+      logger.event('question.batch.runtime_sync_failed', { chatId, batchId,
+        message: cause instanceof Error ? cause.message : String(cause) })
     }
-  } catch (cause) {
-    // DB answers + resumePending are already durable. A cold resume will rebuild
-    // the journal from those rows, so an in-memory hydration failure is recoverable.
-    logger.event('question.batch.runtime_sync_failed', {
-      chatId,
-      batchId,
-      message: cause instanceof Error ? cause.message : String(cause),
-    })
   }
   if (completed.alreadyCompleted) return completed
   const notif = createNotification('question_batch_completed', undefined, { batchId }, { chatId })

@@ -2,7 +2,8 @@ import { randomUUID } from 'crypto'
 import { getSoulDb } from '@/db/index.js'
 import { ingressExecution } from '../ingress/request.js'
 import { assertNewBackendWork, backendResumeRequired, releaseBackendResume } from '../backendWork.js'
-import { isNewQQSourceInput } from '../ingress/sourceExecution.js'
+import { isNewQQSourceInput, sourceExecutionAuthority, validateSourceInput } from '../ingress/sourceExecution.js'
+import { registerSourceTask, sourceTaskSessionId } from '@/db/sourceTasks.js'
 
 import type { HandlerContext } from '../message/router.js'
 import {
@@ -108,6 +109,14 @@ export async function handleChatInputSubmit(
     const acceptedAt = Date.now()
     const prompt = resolvedContent
     const response = getSoulDb().transaction(() => {
+    if (sourceInput && requestLocal && execution?.identity.source === 'plugin' && execution.identity.channel === 'qq') {
+      const authority = sourceExecutionAuthority(execution.identity, execution.validate)
+      const source = validateSourceInput(sourceInput, authority)
+      source.repo.ensureRun(authority, sourceInput.scopeId, sourceInput.requestId, runId)
+      registerSourceTask({ runId, requestId: sourceInput.requestId, chatId: data.chatId, epochId: chat.active_epoch_id!,
+        permissionRevision: source.repo.scope(authority, sourceInput.scopeId).permissionRevision,
+        identity: execution.identity, input: sourceInput, sessionId: sourceTaskSessionId, state: 'running' })
+    }
     if (releaseForNewInput) {
       assertNewBackendWork()
       assertRestartAdmission()

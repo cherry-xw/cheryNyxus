@@ -31,6 +31,11 @@ import { startWorkflowRunRecorder, type WorkflowRunRecorder } from './workflowRe
 import { startUsageRecorder } from './usageRecorder.js'
 import { publicOutcomeText } from '@chery/protocol'
 import { recordToolStart, releaseToolStart } from './toolRecovery.js'
+import { ingressExecution } from '../ingress/request.js'
+import { bindSourceQuestions, getSourceTask } from '@/db/sourceTasks.js'
+import { SourceContextRepository } from '@/db/sourceContext.js'
+import { getSoulDb } from '@/db/index.js'
+import { sourceExecutionAuthority } from '../ingress/sourceExecution.js'
 
 function annotateWorkflow(id: string, workflow: Record<string, unknown>): void {
   try {
@@ -82,6 +87,17 @@ export async function* observeAgentChunks(
   const injectedCommands: string[] = []
   const executionPlaceholders = new Set<string>()
   const usageRecorder = startUsageRecorder(chatId)
+  const execution = ingressExecution.getStore()
+  const sourceTask = execution?.sourceInput ? getSourceTask(getActiveChatRunId(chatId) ?? '') : undefined
+  const sourceRepo = sourceTask ? new SourceContextRepository(getSoulDb()) : undefined
+  const sourceAuthority = sourceTask && execution ? sourceExecutionAuthority(execution.identity, execution.validate) : undefined
+  const saveSourceMessage = (message: LLMResponse): void => {
+    if (!sourceTask || !sourceRepo || !sourceAuthority ||
+      !(message.role === 'sense' || message.role === 'role' || message.role === 'assistant' && message.senseCalls?.length)) return
+    const question = message.role === 'sense' && getMessages().some(parent =>
+      parent.senseCalls?.some(call => call.id === message.id && call.name === 'ask_user_question'))
+    sourceRepo.saveRunMessage(sourceAuthority, sourceTask.input.scopeId, sourceTask.runId, message, question ? 'planned' : 'completed')
+  }
   try {
     for await (const chunk of generator) {
       workflowRecorder.recordChunk(chunk)
@@ -258,6 +274,14 @@ export async function* observeAgentChunks(
         // 这样任何收到事件的客户端都能立即安全调用原子 batchAnswer。
         const batch = createQuestionBatch(chatId, chunk.assistantMessageId, chunk.questions)
         if (!batch) continue
+        if (sourceTask) {
+          bindSourceQuestions(sourceTask.runId, batch.batchId, batch.questions.map(question => question.questionId), batch.assistantMessageId)
+          for (const id of [batch.assistantMessageId, ...batch.questions.map(question => question.questionId)]) {
+            const message = getMessages().find(message => message.id === id)
+            if (!message) throw new Error('SOURCE_TOOL_OUTCOME_UNKNOWN')
+            saveSourceMessage(message)
+          }
+        }
         const interaction = upsertPendingInteraction({
           interactionId: batch.batchId,
           kind: 'question_batch',

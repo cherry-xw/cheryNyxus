@@ -25,15 +25,21 @@ describe('source history replaces display copies and preserves question outcomes
     const sourceInput={...child.sourceInput,snapshotId:initial.snapshot.snapshotId,turnId:initial.requestId}
     const history=[message('system','system','rules'),message('old','assistant','old duplicate discussion'),
       {...message('anchor','user','display copy must not be sent'),sourceInput},message('question','sense','独一份答案')]
+    f.repo.saveRunMessage(f.authority, f.scope.scopeId, initial.runId,
+      { ...message('ask', 'assistant', ''), senseCalls: [{ id: 'question', name: 'ask_user_question', arguments: '{}' }] }, 'completed')
+    f.repo.saveRunMessage(f.authority, f.scope.scopeId, initial.runId, history.at(-1)!, 'completed')
     const prepared=prepareSourceHistory(context(child.sourceInput),history)
     expect(prepared.source?.snapshot.snapshotId).toBe(child.snapshot.snapshotId)
     const text=prepared.history.map(message=>message.content).join('\n')
     expect(text.match(/独一份答案/g)).toHaveLength(1)
     expect(text).not.toContain('display copy');expect(text).not.toContain('old duplicate')
     expect(text).toContain('tool_result_reference')
-    expect(prepared.history.at(-1)).toBe(history.at(-1))
-    expect(()=>prepareSourceHistory(context(child.sourceInput),history.slice(0,-1))).toThrow('SOURCE_TOOL_OUTCOME_UNKNOWN')
-    expect(()=>prepareSourceHistory(context(child.sourceInput),[...history,message('question','sense','duplicate')])).toThrow('SOURCE_TOOL_OUTCOME_UNKNOWN')
+    expect(prepared.history.at(-1)).toEqual(history.at(-1))
+    // Display copies and another task's trailing tools are never execution evidence.
+    expect(prepareSourceHistory(context(child.sourceInput), history.slice(0,-1)).history).toEqual(prepared.history)
+    expect(prepareSourceHistory(context(child.sourceInput), [...history,message('question','sense','duplicate')]).history).toEqual(prepared.history)
+    database.prepare("UPDATE source_run_messages SET state='unknown' WHERE message_id='question'").run()
+    expect(()=>prepareSourceHistory(context(child.sourceInput),history)).toThrow('SOURCE_TOOL_OUTCOME_UNKNOWN')
   })
   it('explains summary overlap when an earlier summarized message is explicitly quoted',()=>{
     const f=sourceFixture();database=f.db

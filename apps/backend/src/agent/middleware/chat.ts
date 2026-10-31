@@ -381,15 +381,11 @@ async function* handleRequestLocal(
   if (sourceRun) {
     const anchor = history.findLastIndex(message => message.sourceInput?.requestId === sourceRun.input.requestId)
     if (anchor < 0) throw new Error('SOURCE_CONTEXT_UNAVAILABLE')
-    // Question calls/results are checkpoint-owned; record their resolved versions before restoring local tools.
-    for (const message of history.slice(anchor + 1)) if (!message.revoked && !message.modelExcluded &&
-      (message.role === 'assistant' && message.senseCalls?.length || message.role === 'sense' || message.role === 'role'))
-      sourceRun.repo.saveRunMessage(sourceRun.authority, sourceRun.input.scopeId, runId!, message, 'completed')
-    const saved = sourceRun.repo.runMessages(sourceRun.authority, sourceRun.input.scopeId, sourceRun.input.requestId)
-    if (saved.some(item => item.state !== 'completed')) throw new Error('SOURCE_TOOL_OUTCOME_UNKNOWN')
+    const saved = sourceRun.repo.completedRunMessages(sourceRun.authority, sourceRun.input.scopeId, sourceRun.input.requestId)
     // The saved sequence is authoritative. Missing earlier tools must not be
     // inserted in front of an already checkpointed question call out of order.
-    history.splice(anchor + 1, history.length - anchor - 1, ...saved.map(item => item.body))
+    history.splice(0, history.length, ...history.slice(0, anchor).filter(message => message.role === 'system'),
+      history[anchor]!, ...saved.map(item => item.body))
   }
   const parentObservation = options.observation
   const continuous = ctx.requestView?.identity.source === 'plugin' && ctx.requestView.identity.channel === 'qq'
