@@ -275,7 +275,7 @@ export class Adapter {
       service.questions.some(question => question.conversationType === input.conversationType && question.targetId === input.targetId &&
         question.senderId === input.senderId && question.messageIds.includes(String(input.replyToMessageId)))
     if (answer) return false
-    if (!input.content && !(input.attachments as unknown[])?.length && !input.mentionedBot) return true
+    if (!String(input.content ?? '').trim() && !(input.attachments as unknown[])?.length && !input.mentionedBot) return true
     const id = String(input.eventId)
     if (this.closedNotices.has(id)) return true
     this.closedNotices.add(id)
@@ -436,7 +436,7 @@ export class Adapter {
       if (await this.closedInput(event)) return
       if (!this.images.allows(event)) return
       const input = normalize(event, this.selfId)
-       if (!input || !input.content && !(input.attachments as unknown[])?.length && !input.mentionedBot) return
+      if (!input || !String(input.content ?? '').trim() && !(input.attachments as unknown[])?.length && !input.mentionedBot) return
       const imagePositions = await this.images.sourcePositions(event)
       for (const file of input.attachments as NonNullable<QQEventSubmitRequest['attachments']>) {
         if (file.type === 'image') {
