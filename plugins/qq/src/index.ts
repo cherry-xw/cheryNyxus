@@ -944,6 +944,11 @@ export class QQPlugin implements IngressPlugin {
     const job = this.state.jobs.find(item => item.requestId === requestId)
     if (!job) fail('INVALID_PARAMS', '记录不存在或已超出保留范围')
     const legacy=recordDetail(job,this.state.outbox)
+    if(job.sourceScopeId&&legacy.processing){
+      const tasks=this.state.learning.tasks.filter(task=>task.scopeId===job.sourceScopeId)
+      legacy.processing.learning={pending:tasks.filter(task=>task.state==='pending'||task.state==='running').length,
+        failed:tasks.filter(task=>task.state==='failed').length,completed:tasks.filter(task=>task.state==='completed').length}
+    }
     if(!job.sourceScopeId)return {...legacy,contextAvailability:job.programSource?'not_applicable' as const:'legacy_unrecorded' as const}
     const index=QQSourceResponseSchemas['qq.context.index'].parse(await this.readSourceDetail({method:'qq.context.index',params:{requestId}}))
     if(index.availability==='legacy_unrecorded'||index.reasonCode==='SOURCE_NOT_RECORDED')return {...legacy,contextAvailability:index.availability}
@@ -1886,6 +1891,7 @@ export class QQPlugin implements IngressPlugin {
     }
     if (job.douyinUrl) {
       job.state = 'running'
+      job.startedAt ??= Date.now()
       this.persist()
       try {
         const {stdout} = await runFile(process.execPath, [this.context.resources.resolve(job.douyinUrl.includes('b23.tv/') || new URL(job.douyinUrl).hostname.endsWith('bilibili.com') ? 'bilibili-download-script' : 'douyin-download-script'), job.douyinUrl], {maxBuffer: 1024 * 1024, signal: controller.signal})
@@ -1924,6 +1930,7 @@ export class QQPlugin implements IngressPlugin {
     await this.context.core.ensureConversation(job.conversationKey, job.snapshot.preset)
     if (this.closing() || this.paused || job.state !== 'queued' || !this.accepting() && !this.adoptedJobs.has(job.requestId)) return
     job.state = 'running'
+    job.startedAt ??= Date.now()
     job.nextWaitAt ??= Date.now() + job.snapshot.config.waitIntervalSeconds * 1000
     this.persist()
     stage('source_context')
@@ -2423,7 +2430,7 @@ export class QQPlugin implements IngressPlugin {
             content: record.parts.flatMap(part => part.type === 'text' ? [part.text] : []).join(''), sourceParts: record.parts,
             mentionedBot: false, occurredAt: Math.floor((record.platformSentAt ?? record.receivedAt) / 1000),
             ...(replyPart?.type === 'reply' ? { replyToMessageId: replyPart.platformMessageId } : {}) }
-          delete parent.sourceSnapshot; delete parent.observe; delete parent.observationCandidates; delete parent.coreRequestId; delete parent.coreRunId; delete parent.mergedInputs
+          delete parent.sourceSnapshot; delete parent.observe; delete parent.observationCandidates; delete parent.coreRequestId; delete parent.coreRunId; delete parent.mergedInputs; delete parent.startedAt
           this.state.jobs.push({ ...parent, input, requestId: derived.requestId, sourceRecords: [job.anchorRecord], derivedFrom: job.requestId,
             decisionRequired: false, contextReads: 0, state: 'queued', reply: '', queueSequence: this.state.nextQueueSequence++, acceptedAt: Date.now(), toolIds: [] })
         }

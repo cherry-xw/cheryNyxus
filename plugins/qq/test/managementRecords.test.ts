@@ -6,7 +6,7 @@ import { QQDefaultConfig, QQEntriesSchema, QQEntryDetailSchema, QQRequestSchemas
 import { JobSchema, type Job, type Outbox } from '../src/state.js'
 import { recordDetail, recordEntry } from '../src/managementRecords.js'
 import { QQPlugin } from '../src/index.js'
-import { deliverySummary, recordPage, taskLabel } from '../ui/qqPresentation.js'
+import { deliverySummary, recordPage, taskLabel, recordKindLabel, participationLabel, filterRecordEntries, recordProcessingRows } from '../ui/qqPresentation.js'
 
 function fixture() {
   const input = { eventId: 'qq:123:group:456:1', selfId: '123', targetId: '456', senderId: '789', senderName: '测试发送者', conversationType: 'group' as const, messageId: '1', content: '帮我整理今天的消息', mentionedBot: true, occurredAt: 1, sourceParts: [{ type: 'text' as const, partId: 'p0', text: '帮我整理今天的消息' }, { type: 'attachment' as const, partId: 'p1', attachmentId: 'att-1' }], attachments: [{ partId: 'p1', type: 'file', name: '资料.txt', url: 'https://example.com/private?signature=secret-attachment' }] }
@@ -20,6 +20,27 @@ const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }) })
 
 describe('administrator QQ records', () => {
+  it('explains observations using the task snapshot without claiming reply or learning success',()=>{
+    const {job}=fixture();job.observe=true;job.participation='wait';job.contextReads=2;job.startedAt=job.acceptedAt+3500
+    job.anchorRecord={recordId:'anchor',revision:1};job.snapshot.config.conversation.groups['456']={mode:'proactive'}
+    const entry=QQEntryDetailSchema.parse(recordDetail(job,[]))
+    expect(entry).toMatchObject({kind:'observation',participation:'wait',processing:{mode:'proactive',modeOrigin:'group',queueWaitMs:3500,contextReads:2}})
+    expect(recordKindLabel(entry)).toBe('观察（不直接发送回复）');expect(participationLabel(entry.participation)).toBe('暂不参与')
+    expect(recordProcessingRows(entry)).toContainEqual({label:'启动前排队',value:'3.5 秒'})
+    expect(entry.processing?.learning).toBeUndefined()
+    const normal=recordEntry({...job,observe:false,participation:undefined},[])
+    expect(filterRecordEntries([entry,normal],'observation')).toEqual([entry]);expect(filterRecordEntries([entry,normal],'reply')).toEqual([normal])
+    delete job.startedAt;expect(recordProcessingRows(recordDetail(job,[]))).toContainEqual({label:'启动前排队',value:'尚未启动或没有记录'})
+  })
+  it('counts learning only within the same source scope and labels it as scope-wide',async()=>{
+    const {job}=fixture(),plugin=Object.create(QQPlugin.prototype) as any
+    job.sourceScopeId='scope';plugin.state={jobs:[job],outbox:[],learning:{tasks:[{scopeId:'scope',state:'pending'},{scopeId:'other',state:'completed'}]}}
+    plugin.readSourceDetail=vi.fn(async()=>({requestId:job.requestId,observedAt:1,availability:'legacy_unrecorded',items:[],associatedSummaryIds:[],nextCursor:null,reasonCode:'SOURCE_NOT_RECORDED'}))
+    const detail=QQEntryDetailSchema.parse(await plugin.entryDetail(job.requestId))
+    expect(detail.processing?.learning).toEqual({pending:1,failed:0,completed:0})
+    expect(recordProcessingRows(detail).find(row=>row.label==='当前来源范围的学习任务')?.value).toContain('不表示这条消息已经学会')
+    expect(recordProcessingRows({...detail,processing:undefined})).toEqual([{label:'处理说明',value:'这条记录未保存处理说明'}])
+  })
   it('provides useful summaries but never exposes a whole configuration or attachment address', () => {
     const { job, outbox } = fixture()
     const value = recordEntry(job, outbox)

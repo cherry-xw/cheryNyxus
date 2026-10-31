@@ -1,5 +1,6 @@
 import type { QQEntry, QQEntryDetail } from '../../../packages/protocol/src/qq.js'
 import { digest, type Job, type Outbox } from './state.js'
+import { resolveConversationPolicy } from '../../../packages/protocol/src/qqConversation.js'
 
 // Only user-facing deliveries belong in the record; internal lookups are not messages.
 function deliveries(job: Job, outbox: Outbox[]): Outbox[] {
@@ -22,6 +23,8 @@ export function recordEntry(job: Job, outbox: Outbox[]): QQEntry {
     senderName: job.input.senderName,
     conversationType: job.input.conversationType,
     state: job.state,
+    kind:job.observe?'observation':job.programSource?'program':'reply',
+    ...(job.participation?{participation:job.participation}:{}),
     acceptedAt: job.acceptedAt,
     policyRevision: job.snapshot.revision,
     preset: job.snapshot.preset,
@@ -36,8 +39,13 @@ export function recordEntry(job: Job, outbox: Outbox[]): QQEntry {
 
 export function recordDetail(job: Job, outbox: Outbox[]): QQEntryDetail {
   const outputs = deliveries(job, outbox)
+  const policy=resolveConversationPolicy(job.snapshot.config,job.target)
   return {
     ...recordEntry(job, outbox),
+    processing:{mode:policy.effective.mode,modeOrigin:policy.origins.mode as 'default'|'group'|'private',contextReads:job.contextReads,
+      ...(job.startedAt!==undefined?{startedAt:job.startedAt,queueWaitMs:Math.max(0,job.startedAt-job.acceptedAt)}:{}),
+      ...(job.anchorRecord?{anchorRecord:job.anchorRecord}:{}),...(job.derivedFrom?{derivedFrom:job.derivedFrom}:{}),
+    },
     messages: (job.mergedInputs?.length ? job.mergedInputs : [job.input]).map(message => ({
       eventId: message.eventId,
       senderId: message.senderId,

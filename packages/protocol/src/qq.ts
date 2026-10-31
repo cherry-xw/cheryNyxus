@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { QQKnowledgeRequestSchemas, QQKnowledgeResponseSchemas } from './qqKnowledge.js'
 import { QQImageLimitsSchema, QQImagePolicyDefault, QQImageRequestSchemas, QQImageResponseSchemas, QQImageTransportMethods } from './qqImages.js'
-import { SourcePartsSchema, SourceReceiptResultSchema, SourceReceiptStatusSchema } from './sourceContext.js'
+import { SourcePartsSchema, SourceRecordRefSchema, SourceReceiptResultSchema, SourceReceiptStatusSchema } from './sourceContext.js'
 import { QQFileRequestSchemas, QQFileResponseSchemas, QQFileTransportMethods } from './qqFiles.js'
 import { QQSourceRequestSchemas, QQSourceResponseSchemas, SourceContextIndexSchema, SourceEntryItemsSchema, SourceVisibleBodySchema } from './sourceManagement.js'
 import { QQConversationSchema, QQConversationDefault, QQLearningSchema } from './qqConversation.js'
@@ -452,6 +452,8 @@ export const QQEntrySchema = z
     policyRevision: z.number().int().nonnegative(),
     reason: z.string().optional(),
     targetId: QQIdSchema,
+    kind: z.enum(['observation','reply','program']).optional(),
+    participation: z.enum(['reply','wait','end']).optional(),
     senderId: QQIdSchema,
     senderName: z.string().max(100),
     preset: z.string(),
@@ -465,6 +467,11 @@ export const QQEntrySchema = z
 export const QQEntriesSchema = z.object({ entries: z.array(QQEntrySchema) }).strict()
 export const QQEntryRequestSchema = z.object({ requestId: identifier }).strict()
 export const QQEntryDetailSchema = QQEntrySchema.extend({
+  processing:z.object({mode:z.enum(['followup','proactive']),modeOrigin:z.enum(['default','group','private']),
+    startedAt:z.number().optional(),queueWaitMs:z.number().nonnegative().optional(),contextReads:z.number().int().nonnegative(),
+    anchorRecord:SourceRecordRefSchema.optional(),derivedFrom:z.string().optional(),
+    learning:z.object({pending:z.number().int().nonnegative(),failed:z.number().int().nonnegative(),completed:z.number().int().nonnegative()}).strict().optional(),
+  }).strict().optional(),
   contextAvailability: SourceContextIndexSchema.shape.availability.optional(),
   sourceContext: z.object({observedAt:z.number().int().nonnegative(),messages:SourceEntryItemsSchema.optional(),deliveries:SourceEntryItemsSchema.optional(),
     replyBody:SourceVisibleBodySchema.optional(),itemsDeferred:z.boolean()}).strict().optional(),

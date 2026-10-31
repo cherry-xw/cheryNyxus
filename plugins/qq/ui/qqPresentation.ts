@@ -1,4 +1,4 @@
-import { type QQEntry, QQResponseSchemas } from '../../../packages/protocol/src/qq'
+import { type QQEntry, type QQEntryDetail, QQResponseSchemas } from '../../../packages/protocol/src/qq'
 import type { z } from 'zod'
 
 type Capability = z.infer<typeof QQResponseSchemas['qq.policy.get']>['capabilities'][number]
@@ -14,6 +14,23 @@ export function capabilityResultLabel(result: Capability['lastResult']): string 
 
 export const applyLabel = (value?: string) => ({ applied: '已应用', pending: '待应用', failed: '应用失败', restart_required: '需重启运行服务' }[value || ''] || '应用状态未知')
 export const taskLabel = (value: string) => ({ queued: '排队中', running: '处理中', sending: '处理完成，等待发送确认', completed: '处理完成', failed: '处理失败', paused: '已暂停', cancelled: '已取消' }[value] || '任务状态未知')
+export const recordKindLabel=(entry:Pick<QQEntry,'kind'>)=>entry.kind==='observation'?'观察（不直接发送回复）':entry.kind==='program'?'程序通知':'回复任务'
+export const participationLabel=(value?:string)=>({reply:'选择回复',wait:'暂不参与',end:'结束参与'}[value??'']??'未作参与决定')
+export function filterRecordEntries(entries:QQEntry[],kind:'all'|'observation'|'reply') {
+  return kind==='all'?entries:entries.filter(entry=>kind==='observation'?entry.kind==='observation':entry.kind!=='observation')
+}
+export function recordProcessingRows(entry:QQEntryDetail) {
+  const processing=entry.processing
+  if(!processing)return [{label:'处理说明',value:'这条记录未保存处理说明'}]
+  const rows=[{label:'参与模式',value:`${entry.conversationType==='private'?'私聊':processing.mode==='proactive'?'适度主动参与':'@后续聊'}（${{default:'默认设置',group:'本群覆盖',private:'私聊设置'}[processing.modeOrigin]}）`},
+    {label:'参与决定',value:participationLabel(entry.participation)},
+    {label:'启动前排队',value:processing.queueWaitMs===undefined?'尚未启动或没有记录':`${(processing.queueWaitMs/1000).toFixed(1)} 秒`},
+    {label:'判断前补查',value:`${processing.contextReads} 次`},
+  ]
+  if(processing.anchorRecord)rows.push({label:'回应来源',value:`${processing.anchorRecord.recordId} · 版本 ${processing.anchorRecord.revision}`})
+  if(processing.learning)rows.push({label:'当前来源范围的学习任务',value:`待处理 ${processing.learning.pending} · 失败 ${processing.learning.failed} · 已完成 ${processing.learning.completed}（不表示这条消息已经学会）`})
+  return rows
+}
 export const deliveryLabel = (value: string) => ({ pending: '待发送', inflight: '发送中', sent: '已确认发送', unknown: '发送结果未知', failed: '发送失败' }[value] || value)
 export const outputLabel = (value: string) => ({ 'qq.message.ack': '收到消息的确认表情', 'qq.reply.part': '回复文字', 'qq.reply.file': '文件', 'qq.reply.video': '视频', 'qq.reply.images': '图片', 'qq.reply.action': 'QQ 互动 / 语音', 'qq.request.failed': '失败说明（不是原回复）' }[value] || value)
 

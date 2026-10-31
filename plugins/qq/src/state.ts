@@ -48,6 +48,7 @@ export const JobDataSchema = z.object({
   }),
   state: z.enum(['queued', 'running', 'sending', 'completed', 'failed', 'paused', 'cancelled']),
   acceptedAt: z.number(),
+  startedAt: z.number().optional(),
   queueSequence: z.number().int().nonnegative().safe(),
   lastInputAcceptedAt: z.number().optional(),
   version: z.number().int().positive().default(1),

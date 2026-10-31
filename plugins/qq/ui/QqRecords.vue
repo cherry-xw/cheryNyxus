@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { useQq } from './useQq'
-import { deliveryLabel, deliverySummary, outputLabel, recordPage, taskLabel } from './qqPresentation'
+import { deliveryLabel, deliverySummary, outputLabel, recordPage, taskLabel, recordKindLabel, participationLabel, filterRecordEntries, recordProcessingRows } from './qqPresentation'
 import QqSourceDetail from './QqSourceDetail.vue'
 const props = defineProps<{ kind: 'queue' | 'history'; active: boolean; controller: ReturnType<typeof useQq> }>()
 const { state, refresh, detail, sources, openRecords } = props.controller
 const page = ref(1)
-const result = computed(() => recordPage(state[props.kind]?.entries || [], page.value))
+const filter=ref<'all'|'observation'|'reply'>('all')
+const result = computed(() => recordPage(filterRecordEntries(state[props.kind]?.entries || [],filter.value), page.value))
+watch(filter,()=>{page.value=1})
 const time = (value?: number) => value === undefined ? '未记录' : new Date(value).toLocaleString()
 watch(() => props.active, active => { if (active && !state[props.kind]) void refresh(props.kind) }, { immediate: true })
 watch(() => result.value.page, value => { page.value = value })
@@ -19,7 +21,8 @@ function expand(event: Event, id: string) { const open=(event.target as HTMLDeta
     <p v-if="state[`${kind}Error`]" class="error" role="alert">{{ state[`${kind}Error`] }}</p>
     <p v-else-if="!state[kind]" role="status">{{ state[`${kind}Loading`] ? '正在读取记录…' : '尚未读取。' }}</p>
     <template v-else>
-      <p v-if="!result.total">{{ kind === 'queue' ? '当前没有排队或处理中的请求。' : '当前没有保留的历史记录。' }}</p>
+      <label>记录类型<select v-model="filter"><option value="all">全部记录</option><option value="reply">回复与通知</option><option value="observation">只看观察</option></select></label>
+      <p v-if="!result.total">{{ filter !== 'all' ? '当前没有符合筛选条件的记录。' : kind === 'queue' ? '当前没有排队或处理中的请求。' : '当前没有保留的历史记录。' }}</p>
       <template v-else>
         <nav class="record-pagination" aria-label="记录分页">
           <span>当前保留 {{ result.total }} 条 · 第 {{ result.page }} / {{ result.pages }} 页</span>
@@ -28,7 +31,8 @@ function expand(event: Event, id: string) { const open=(event.target as HTMLDeta
         <p class="muted">处理状态与实际发送结果分别记录；发送成功的确认表情或失败说明不代表原回复已发送。</p>
         <ol class="record-list">
           <li v-for="item in result.entries" :key="item.requestId" class="record-card">
-            <div class="section-heading"><h3>{{ item.conversationType === 'group' ? '群' : '私聊' }} {{ item.targetId }}</h3><span>{{ taskLabel(item.state) }}</span></div>
+             <div class="section-heading"><h3>{{ item.conversationType === 'group' ? '群' : '私聊' }} {{ item.targetId }}</h3><span>{{ taskLabel(item.state) }}</span></div>
+             <p>{{recordKindLabel(item)}}<span v-if="item.kind==='observation'||item.participation"> · {{participationLabel(item.participation)}}</span></p>
             <p class="muted"><time>{{ time(item.acceptedAt) }}</time> · {{ item.senderName || '未记录昵称' }}（{{ item.senderId }}） · 预设：{{ item.preset }}</p>
             <p class="record-preview">{{ item.inputPreview || (item.attachmentCount ? '仅附件消息' : '仅 @ 或无文字输入') }}</p>
             <p v-if="item.messageCount > 1 || item.attachmentCount" class="muted">合并输入 {{ item.messageCount }} 条 · 附件 {{ item.attachmentCount }} 个</p>
@@ -38,8 +42,9 @@ function expand(event: Event, id: string) { const open=(event.target as HTMLDeta
               <summary>查看消息、回复与发送详情</summary>
               <p v-if="state.detailsLoading[item.requestId]" role="status">正在读取详情…</p>
               <p v-if="state.detailErrors[item.requestId]" class="error" role="alert">{{ state.detailErrors[item.requestId] }} <button type="button" @click="detail(item.requestId)">重试读取详情</button></p>
-               <template v-if="state.details[item.requestId]">
-                 <button type="button" :disabled="state.detailsLoading[item.requestId]" @click="detail(item.requestId,true)">刷新任务与发送状态</button>
+                <template v-if="state.details[item.requestId]">
+                  <button type="button" :disabled="state.detailsLoading[item.requestId]" @click="detail(item.requestId,true)">刷新任务与发送状态</button>
+                  <h4>处理说明</h4><dl><div v-for="row in recordProcessingRows(state.details[item.requestId])" :key="row.label"><dt>{{row.label}}</dt><dd>{{row.value}}</dd></div></dl>
                  <template v-if="!state.details[item.requestId].sourceContext && (!sources.sessions[item.requestId]?.index || sources.sessions[item.requestId].index?.availability==='legacy_unrecorded')">
                 <h4>收到的消息</h4>
                 <article v-for="message in state.details[item.requestId].messages" :key="message.eventId" class="record-message">
