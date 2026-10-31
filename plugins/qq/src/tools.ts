@@ -5,6 +5,7 @@ import type { IngressContext } from '@chery/plugin-api'
 import { QQMemoryStore, qqMemoryBatchSchema } from './memory.js'
 import { QQGroupMemoryStore, groupMemoryBatchSchema, type GroupSource } from './groupMemory.js'
 import { qqReadFileSchema, qqWriteFileSchema, qqSubjectSchema, readQQFile, writeQQFile, readQQGroupFile, writeQQGroupFile } from './files.js'
+import { readSourceZipText, type SourceWorkspaceAccess } from './sourceWorkspace.mjs'
 
 export interface QQWorkerOptions {
   enabled: boolean
@@ -63,9 +64,10 @@ export function createQQTools(
   fileRoot: string,
   limits?: ConstructorParameters<typeof QQMemoryStore>[1],
   consolidate?: (content: string, instruction: string, ctx: RuntimeContext) => Promise<string>,
-  groupSources: (requestId: string) => GroupSource[] = () => [],
+  groupSources: (requestId: string) => GroupSource[] | Promise<GroupSource[]> = () => [],
   workerConfig?: (ctx: RuntimeContext) => QQWorkerOptions,
   notifyProgress?: (ctx: RuntimeContext, text: string) => void,
+  sourceAccess?: (ctx: RuntimeContext) => Promise<SourceWorkspaceAccess>,
 ): Registration[] {
   const execSchema = z.object({
     command: z.string().min(1).max(8000),
@@ -100,7 +102,11 @@ export function createQQTools(
       (input, ctx) => readQQGroupFile(fileRoot, subjectOf(ctx), input)),
     tool('qq_group_write_file', 'QQ群共享文件写入', '仅当前QQ群：向本群共享目录写入可复用脚本（如scripts/xxx.mjs）或共享文本资料。跨群严格隔离。写入脚本后可配合qq_group_memory_manage记录脚本用途与调用方式，后续同类任务直接通过qq_container_exec调用该脚本，免去重复调研。创建不传expectedVersion，更新须先读取并传回version。最多1MiB。', qqWriteFileSchema,
       (input, ctx) => writeQQGroupFile(fileRoot, subjectOf(ctx), input, ctx?.signal)),
-    tool('qq_container_exec', 'QQ隔离容器指令执行', '在独立的QQ通用工具Docker容器（cherynyxus-qq-worker）中运行命令或沉淀脚本（内置N_m3u8DL-RE、ffmpeg、ffprobe、yt-dlp、node、python3、curl）。工作目录/workspace/files仅挂载当前群或本人目录，不暴露其他用户空间，媒体输出目录为$CHERY_MEDIA_DIR（/workspace/media），内置视频下载脚本位于$QQ_SKILLS_SCRIPTS_DIR/video.mjs。受设置页CPU、内存、进程数与1GB下载体积硬限制约束。', execSchema,
+    ...(sourceAccess ? [tool('qq_source_file_read', 'QQ来源文本读取', '读取当前获准来源范围中ZIP已解压的UTF-8文本。slotKey和path取实际工具返回；path相对extracted/。start/length按Unicode code point计数，最长8192，按nextStart接着读。禁止读取其他范围、二进制、符号链接或特殊文件。',
+      z.object({ slotKey: z.string().regex(/^[a-zA-Z0-9._-]{1,120}$/), path: z.string().min(1).max(512),
+        start: z.number().int().nonnegative().safe().optional(), length: z.number().int().min(1).max(8192).optional() }).strict(),
+      async (input, ctx) => readSourceZipText({ ...await sourceAccess(ctx), ...input }))] : []),
+    tool('qq_container_exec', 'QQ隔离容器指令执行', '在独立的QQ工具Docker容器中运行命令。/workspace/files为当前群或本人共享脚本；incoming-zips/单独只挂当前获准来源范围，没有范围权限则为空。ZIP使用python3 /opt/qq-skills/archive-inspect/scripts/archive.py list或extract（cwd为真实返回的incoming-zips/<slotKey>）；不执行包内代码。长文本用qq_source_file_read分页。内置ffmpeg、yt-dlp、node、python3、curl；媒体目录为$CHERY_MEDIA_DIR，视频脚本为$QQ_SKILLS_SCRIPTS_DIR/video.mjs。CPU、内存、进程数及下载体积受当前设置限制。', execSchema,
       async (input, ctx) => {
         const subject = subjectOf(ctx)
         const cfg = workerConfig?.(ctx) ?? {
@@ -114,11 +120,15 @@ export function createQQTools(
           threadCount: 4,
         }
         if (!cfg.enabled) throw new Error('QQ隔离执行容器已在设置中禁用')
-        return executeQQWorker(cfg.endpoint, {
+        const access = sourceAccess ? await sourceAccess(ctx) : undefined
+        await access?.validate()
+        const signal = access?.signal ? ctx?.signal ? AbortSignal.any([ctx.signal, access.signal]) : access.signal : ctx?.signal
+        const result = await executeQQWorker(cfg.endpoint, {
             command: input.command,
             scope: input.scope,
             cwd: input.cwd,
             subject,
+            ...(access ? { sourceScope: access.scope } : {}),
             limits: {
               workerCpuCores: cfg.cpuCores,
               workerMemoryMb: cfg.memoryMb,
@@ -127,10 +137,13 @@ export function createQQTools(
               workerBubbleVideoMaxMb: cfg.bubbleVideoMaxMb,
               workerThreadCount: cfg.threadCount,
             },
-        }, ctx?.signal, cfg.progressEnabled === false || !notifyProgress ? undefined :
+        }, signal, cfg.progressEnabled === false || !notifyProgress ? undefined :
           createDownloadReporter((cfg.progressIntervalMinutes ?? 10) * 60000, text => {
             if (!ctx?.signal?.aborted) notifyProgress(ctx, text)
           }))
+        signal?.throwIfAborted()
+        await access?.validate()
+        return result
       }),
   ]
 }

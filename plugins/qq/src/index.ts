@@ -336,6 +336,10 @@ export class QQPlugin implements IngressPlugin {
         if (!job || this.stopped || this.paused) return
         if (job.decisionRequired && job.participation !== 'reply') return
         this.output(job, 'qq.waiting', { text })
+      }, async ctx => {
+        const job = this.state.jobs.find(job => job.coreRequestId === ctx?.requestView?.requestId && job.state === 'running')
+        if (!job) fail('IDENTITY_REJECTED', '执行需要活动的QQ请求')
+        return this.sourceAccess(job, ctx?.signal)
       }))
       this.cleanups.push(this.context.tools.register(tool))
     for (const output of this.state.outbox)
@@ -569,6 +573,7 @@ export class QQPlugin implements IngressPlugin {
       ) => Promise<z.infer<(typeof QQResponseSchemas)[K]>>,
     ) => {
       const transport = [
+        ...QQFileTransportMethods,
         ...QQImageTransportMethods,
         'qq.file.read',
         'qq.information.result',

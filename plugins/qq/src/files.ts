@@ -127,6 +127,7 @@ function fileTarget(root: string, subject: QQSubject, relative: string): string 
   if (!relative || relative.length > 512 || path.isAbsolute(relative) || relative.includes('\\') || relative.includes('\0') || relative.split('/').some(p => !p || p === '..' || p === '.'))
     throw new Error('请提供个人目录内的相对文件路径')
   if (relative.split('/')[0] === 'apps') throw new Error('受管应用文件必须通过 managed_app 在工作容器内操作')
+  if (relative.split('/')[0] === 'incoming-zips') throw new Error('来源压缩包必须通过当前来源范围的读取工具访问')
   return path.join(root, subject.userId, ...relative.split('/'))
 }
 
@@ -137,6 +138,7 @@ function groupFileTarget(root: string, subject: QQSubject, relative: string): st
   if (!relative || relative.length > 512 || path.isAbsolute(relative) || relative.includes('\\') || relative.includes('\0') || relative.split('/').some(p => !p || p === '..' || p === '.'))
     throw new Error('请提供当前群共享目录内的相对文件路径')
   if (relative.split('/')[0] === 'apps') throw new Error('受管应用文件必须通过 managed_app 在工作容器内操作')
+  if (relative.split('/')[0] === 'incoming-zips') throw new Error('来源压缩包必须通过当前来源范围的读取工具访问')
   return path.join(root, 'groups', subject.groupId, ...relative.split('/'))
 }
 
