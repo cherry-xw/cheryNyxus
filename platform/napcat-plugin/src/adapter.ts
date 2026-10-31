@@ -470,6 +470,7 @@ export class Adapter {
         accepted: received.accepted,
       }
       saveJournal(this.journalFile, this.journal)
+      if ('state' in received && received.state === 'deleted') return
       const signal = this.lifetime.signal
       const validate = () => { signal.throwIfAborted(); if (this.stopped || generation !== this.fileGeneration || deliveryEpoch !== this.deliveryEpoch) throw new Error('stale connection') }
       // Acquisition cannot hold the target receipt/queue lock or prevent new messages from admission.

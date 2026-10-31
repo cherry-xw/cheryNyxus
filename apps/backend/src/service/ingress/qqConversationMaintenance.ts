@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import Database from 'better-sqlite3'
+import { textVersion } from '../../../../../plugins/qq/src/files.js'
 import { atomicJson, digest, safePath } from '../../../../../plugins/qq/src/state.js'
 import { convertQQConfiguration } from '../../../../../plugins/qq/src/configConversion.js'
 import { convertQQToolGroups } from '../../../../../plugins/qq/src/toolConversion.js'
@@ -22,6 +23,7 @@ export function planQQCleanup(db: Database.Database, dataDir: string, dbFile: st
   const state = read(path.join(dataDir,'state.json'))
   if (state.identityBinding?.selfId !== selfId || ![1,2,3].includes(state.schemaVersion)) fail('IDENTITY_MISMATCH')
   if ((state.jobs ?? []).some((job: Row)=>!terminal(job.state)) || (state.outbox ?? []).some((out: Row)=>!['sent','failed'].includes(out.status)) ||
+    (state.jobs??[]).some((job:Row)=>(job.questionBatches??[]).some((batch:Row)=>['pending','saved','starting'].includes(batch.status))) ||
     Object.values(state.sourceReceipts ?? {}).some((receipt:any)=>receipt.pendingReceipt)) fail('UNRESOLVED_QQ_WORK')
   const names = tables(db), conversations = names.includes('source_conversations') ? rows(db,'source_conversations').filter(row=>row.owner_id===owner&&row.channel==='qq'&&row.self_id===selfId) : []
   const conversationIds = new Set(conversations.map(row=>row.conversation_id)), scopeRows = names.includes('source_scopes') ? rows(db,'source_scopes').filter(row=>conversationIds.has(row.conversation_id)) : []
@@ -30,8 +32,13 @@ export function planQQCleanup(db: Database.Database, dataDir: string, dbFile: st
   for (const job of state.jobs ?? []) {if(job.input.selfId!==selfId)fail('MIXED_ROBOT_STATE');if(job.coreChatId)chats.add(job.coreChatId);requests.add(job.requestId);if(job.coreRequestId)requests.add(job.coreRequestId)}
   // Descendant chats are owned only through the already verified QQ roots.
   const chatRows=names.includes('chats')?rows(db,'chats'):[]
+  const taskRows=names.includes('conversation_tasks')?rows(db,'conversation_tasks'):[],branchRows=names.includes('conversation_branches')?rows(db,'conversation_branches'):[]
   let changed=true
-  while(changed){changed=false;for(const chat of chatRows)if(chat.parent_chat_id&&chats.has(chat.parent_chat_id)&&!chats.has(chat.id)){chats.add(chat.id);changed=true}}
+  while(changed){changed=false;for(const chat of chatRows)if(chat.parent_chat_id&&chats.has(chat.parent_chat_id)&&!chats.has(chat.id)){chats.add(chat.id);changed=true}
+    for(const task of taskRows)if(chats.has(task.original_chat_id)||branchRows.some(branch=>branch.task_id===task.task_id&&chats.has(branch.chat_id))){
+      for(const chat of [task.original_chat_id,...branchRows.filter(branch=>branch.task_id===task.task_id).map(branch=>branch.chat_id)])if(!chats.has(chat)){chats.add(chat);changed=true}
+    }
+  }
   const sourceRuns=names.includes('source_runs')?rows(db,'source_runs').filter(row=>scopes.has(row.scope_id)):[]
   for(const run of sourceRuns)requests.add(run.request_id)
   const runs=new Set(sourceRuns.map(row=>row.run_id))
@@ -58,9 +65,10 @@ export function planQQCleanup(db: Database.Database, dataDir: string, dbFile: st
   changed=true
   while(changed){changed=false;for(const table of names){
     if(protectedTables.has(table))continue
-    const keys=db.prepare(`PRAGMA foreign_key_list(${quote(table)})`).all() as Array<{table:string;from:string;to:string}>
+    const keys=db.prepare(`PRAGMA foreign_key_list(${quote(table)})`).all() as Array<{id:number;seq:number;table:string;from:string;to:string|null}>
+    const groups=[...new Set(keys.map(key=>key.id))].map(id=>keys.filter(key=>key.id===id))
     const existing=selected.get(table)??[], pk=primary(db,table)
-    for(const row of rows(db,table))if(!existing.includes(row)&&keys.some(key=>(selected.get(key.table)??[]).some(parent=>row[key.from]!==null&&row[key.from]===parent[key.to]))){
+    for(const row of rows(db,table))if(!existing.includes(row)&&groups.some(group=>(selected.get(group[0]!.table)??[]).some(parent=>group.every(key=>row[key.from]!=null&&row[key.from]===parent[key.to??primary(db,key.table)[key.seq]!])))){
       if(existing.some(old=>pk.every(col=>old[col]===row[col])))continue
       existing.push(row);selected.set(table,existing);changed=true
     }
@@ -85,15 +93,28 @@ export function planQQCleanup(db: Database.Database, dataDir: string, dbFile: st
     }if(selectedRows.length)stores.unshift({file,rows:selectedRows})}finally{month.close()}
   }
   const files:Manifest['files']=[], memory=path.join(dataDir,'memory')
-  function scan(dir:string){safePath(dir);for(const entry of fs.readdirSync(dir,{withFileTypes:true})){
-    const file=path.join(dir,entry.name);safePath(file)
-    if(entry.isDirectory())scan(file)
-    else if(entry.isFile()&&entry.name.endsWith('.json')){const bytes=fs.readFileSync(file);files.push({file,hash:digest(bytes.toString('utf8'))})}
-    else fail('UNRESOLVED_MEMORY_FILE')
-  }}
+   const selfHash=textVersion(selfId),localNames=new Set(conversations.map(row=>textVersion([selfHash,row.conversation_type==='group'?`group:${row.target_id}`:`private:${row.target_id}`].join(':'))+'.json'))
+   function scan(dir:string){safePath(dir);for(const entry of fs.readdirSync(dir,{withFileTypes:true})){
+     const file=path.join(dir,entry.name);safePath(file)
+     const relative=path.relative(memory,file).split(path.sep),kind=relative[0]
+     if(['candidates','extractions'].includes(kind!)&&relative.length===2&&!entry.isDirectory())fail('UNPROVEN_MEMORY_OWNER')
+     if(['candidates','extractions'].includes(kind!)&&relative.length>=2&&relative[1]!==selfHash)continue
+     if(kind==='public'&&relative.length===2&&entry.name!==selfHash+'.json')continue
+     if(entry.isDirectory())scan(file)
+     else if(entry.isFile()&&entry.name.endsWith('.json')){
+       const bytes=fs.readFileSync(file,'utf8'),data=JSON.parse(bytes)
+       if(data.identity?.selfId&&data.identity.selfId!==selfId)continue
+       if(kind==='local'){
+         if(data.ownerHash&&data.ownerHash!==selfHash)continue
+         if(!data.ownerHash&&!localNames.has(entry.name))fail('UNPROVEN_MEMORY_OWNER')
+       }else if(!['personal','group','member','topics','public','candidates','extractions'].includes(kind!))fail('UNPROVEN_MEMORY_OWNER')
+       files.push({file,hash:digest(bytes)})
+     }
+     else fail('UNRESOLVED_MEMORY_FILE')
+   }}
   if(fs.existsSync(memory))scan(memory)
   return {operationId,identity:digest([owner,selfId,path.resolve(dataDir),path.resolve(dbFile)]),epoch:`qq-clean-${operationId}`,phase:0,stateHash:digest(state),stores,files,
-    events:[...new Set([...Object.keys(state.receipts??{}),...Object.keys(state.sourceReceipts??{}),...conversations.flatMap(conversation=>names.includes('source_receipt_events')?rows(db,'source_receipt_events').filter(row=>row.conversation_id===conversation.conversation_id).map(row=>row.event_id):[])])].map(event=>digest(event))}
+     events:[...new Set([...(state.clearedEvents??[]),...[...new Set([...Object.keys(state.receipts??{}),...Object.keys(state.sourceReceipts??{}),...conversations.flatMap(conversation=>names.includes('source_receipt_events')?rows(db,'source_receipt_events').filter(row=>row.conversation_id===conversation.conversation_id).map(row=>row.event_id):[])])].map(event=>digest(event))])]}
 }
 
 export function cleanupQQConversation(input:{db:string;dataDir:string;owner:string;selfId:string;operationId:string;apply?:boolean;stopped?:boolean}){
@@ -101,12 +122,28 @@ export function cleanupQQConversation(input:{db:string;dataDir:string;owner:stri
   if(!/^[a-zA-Z0-9_-]{1,64}$/.test(input.operationId)||!/^\d+$/.test(input.selfId))fail('INVALID_ARGUMENTS')
   if(input.apply&&!input.stopped)fail('STOPPED_BACKEND_REQUIRED')
   const manifestFile=path.join(input.dataDir,`conversation-clean-${input.operationId}.json`), identity=digest([input.owner,input.selfId,path.resolve(input.dataDir),path.resolve(input.db)])
+  for(const name of fs.readdirSync(input.dataDir).filter(name=>/^conversation-clean-[a-zA-Z0-9_-]+\.json$/.test(name))){
+    const other=path.join(input.dataDir,name)
+    if(other===manifestFile)continue
+    const saved=read(other)
+    if(!Array.isArray(saved.stores)||!Number.isSafeInteger(saved.phase)||saved.phase!==saved.stores.length+2)fail('OTHER_CLEANUP_INCOMPLETE')
+  }
   let manifest:Manifest
   if(fs.existsSync(manifestFile)){manifest=read(manifestFile) as Manifest;if(manifest.identity!==identity)fail('OPERATION_CONFLICT')}
   else{const db=new Database(input.db,{readonly:true,fileMustExist:true});try{manifest=planQQCleanup(db,input.dataDir,input.db,input.owner,input.selfId,input.operationId)}finally{db.close()}}
   const report=()=>({operationId:manifest.operationId,mode:input.apply?'apply':'preview',phase:manifest.phase,completed:manifest.phase===manifest.stores.length+2,
     stores:manifest.stores.map(store=>({rows:store.rows.length})),memoryFiles:manifest.files.length,eventHashes:manifest.events.length})
   if(!input.apply||report().completed)return report()
+  const currentState=read(path.join(input.dataDir,'state.json'))
+  if(currentState.contextEpoch!==manifest.epoch&&digest(currentState)!==manifest.stateHash)fail('STATE_CHANGED')
+  for(const item of manifest.files)if(fs.existsSync(item.file)){safePath(item.file);if(digest(fs.readFileSync(item.file,'utf8'))!==item.hash)fail('MEMORY_CHANGED')}
+  for(const store of manifest.stores.slice(manifest.phase)){
+    safePath(store.file);const db=new Database(store.file,{readonly:true,fileMustExist:true})
+    try{for(const item of store.rows){const cols=Object.keys(item.key),where=cols.map(col=>`${quote(col)} IS ?`).join(' AND ')
+      const row=db.prepare(`SELECT * FROM ${quote(item.table)} WHERE ${where}`).get(...Object.values(item.key))
+      if(row&&digest(row)!==item.hash)fail('SOURCE_CHANGED')
+    }}finally{db.close()}
+  }
   if(!fs.existsSync(manifestFile))atomicJson(manifestFile,manifest)
   for(let index=manifest.phase;index<manifest.stores.length;index++){
     const store=manifest.stores[index]!;safePath(store.file);const db=new Database(store.file,{fileMustExist:true})
@@ -127,7 +164,7 @@ export function cleanupQQConversation(input:{db:string;dataDir:string;owner:stri
   }manifest.phase++;atomicJson(manifestFile,manifest)}
   if(manifest.phase===manifest.stores.length+1){const file=path.join(input.dataDir,'state.json'),state=read(file)
     if(state.contextEpoch!==manifest.epoch){if(digest(state)!==manifest.stateHash)fail('STATE_CHANGED')
-      Object.assign(state,{schemaVersion:3,contextEpoch:manifest.epoch,jobs:[],outbox:[],imageSources:{},observations:{},sourceScopes:{},sourceReceipts:{},discussions:{},windows:{},receipts:{},learning:{since:Date.now(),calls:[],positions:{},tasks:[],nextPollAt:0},clearedEvents:manifest.events})
+      Object.assign(state,{schemaVersion:3,contextEpoch:manifest.epoch,jobs:[],outbox:[],imageSources:{},observations:{},toolResults:{},sourceScopes:{},sourceReceipts:{},discussions:{},windows:{},receipts:{},learning:{since:Date.now(),calls:[],positions:{},tasks:[],nextPollAt:0},clearedEvents:manifest.events})
       atomicJson(file,state)
     }manifest.phase++;atomicJson(manifestFile,manifest)
   }

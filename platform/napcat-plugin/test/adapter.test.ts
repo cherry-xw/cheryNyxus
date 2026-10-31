@@ -125,6 +125,16 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
     expect(wire.request.mock.calls.filter(c=>c[0]==='qq.event.submit')).toHaveLength(1)
     expect(wire.request.mock.calls.find(c=>c[0]==='qq.event.submit')?.[1]).toMatchObject({content:'',mentionedBot:true})
   })
+  it('does not acquire files or send anything for an explicitly deleted input',async()=>{
+    const {adapter,wire,ctx}=fixture();await adapter.start();await settle()
+    const original=wire.request.getMockImplementation()!
+    wire.request.mockImplementation(async(method,params)=>method==='qq.event.submit'?{success:true,data:{eventId:params.eventId,accepted:false,state:'deleted',alreadyProcessed:true}}:original(method,params))
+    const before=(ctx.actions.call as any).mock.calls.length
+    await adapter.receive(input({message:[{type:'file',data:{file:'old-file',name:'old.zip'}}]}));await settle()
+    expect(wire.request.mock.calls.some(([method])=>method==='qq.event.submit')).toBe(true)
+    expect(wire.request.mock.calls.filter(([method])=>method.startsWith('qq.file.'))).toEqual([])
+    expect((ctx.actions.call as any).mock.calls.length).toBe(before)
+  })
   it('normalizes group/private and rejects forged identity and private group fields', () => {
     expect(normalize(input(), '123')).toMatchObject({ selfId: '123', targetId: '456', senderId: '789', messageId: '-42', content: 'hello', mentionedBot: true, occurredAt: 10 })
     const privateEvent = input({ group_id: undefined, message_type: 'private' })

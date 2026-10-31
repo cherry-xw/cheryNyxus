@@ -111,7 +111,7 @@ export class QQPlugin implements IngressPlugin {
       current: () => ({ config: this.snapshot.config, revision: this.snapshot.revision, connectionId: this.connection,
         scopes: this.state.sourceScopes, foreground: this.stopped || this.paused || this.closing() || !this.recovered || this.summaryOperations.size > 0 || this.state.jobs.some(job => !terminal(job)),
         completedRequests: this.state.jobs.filter(job => terminal(job) && !job.programSource).map(job => job.requestId) }),
-      cache: (key,value) => this.knowledge().cache(`${this.state.identityBinding?.selfId}:${key}`,value), commit: input => this.commitLearning(input),
+      cache: (key,value) => this.knowledge().cache(this.state.identityBinding!.selfId,key,value), commit: input => this.commitLearning(input),
       localSnapshot: task=>this.knowledge().list(this.targetSubject(task.target),'local',undefined,undefined,1000),
       complete: async (task,signal,validate) => {
         const subject = this.targetSubject(task.target), candidates = new QQKnowledgeCandidates(context.dataDir,this.knowledge())

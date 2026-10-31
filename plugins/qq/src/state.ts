@@ -233,6 +233,13 @@ export function atomicJson(file: string, value: unknown): void {
 }
 export function readState(file: string): State {
   safePath(file)
+  const directory=path.dirname(file)
+  if(fs.existsSync(directory))for(const name of fs.readdirSync(directory).filter(name=>/^conversation-clean-[a-zA-Z0-9_-]+\.json$/.test(name))){
+    const manifest=path.join(directory,name);safePath(manifest)
+    const value=JSON.parse(fs.readFileSync(manifest,'utf8'))
+    if(!Array.isArray(value.stores)||!Number.isSafeInteger(value.phase)||value.phase!==value.stores.length+2)
+      throw new Error('QQ_CONVERSATION_CLEANUP_INCOMPLETE')
+  }
   if (!fs.existsSync(file)) return emptyState()
   let raw: unknown
   try {

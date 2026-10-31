@@ -18,7 +18,7 @@ export type KnowledgeEvidence = z.infer<typeof KnowledgeEvidenceSchema>
 const EntrySchema = TermInputSchema.omit({ evidenceRefs: true }).extend({ revision: z.number().int().positive(),
   sources: z.array(KnowledgeEvidenceSchema).min(1).max(20), createdAt: z.number(), updatedAt: z.number() }).strict()
 export type KnowledgeEntry = z.infer<typeof EntrySchema>
-const StoreSchema = z.object({ schemaVersion: z.literal(1), revision: z.number().int().nonnegative(), entries: z.record(z.string(), EntrySchema),
+const StoreSchema = z.object({ schemaVersion: z.literal(1), ownerHash:z.string().regex(/^[a-f0-9]{64}$/).optional(), revision: z.number().int().nonnegative(), entries: z.record(z.string(), EntrySchema),
   rejected: z.array(z.string()), tombstones: z.record(z.string(), z.array(z.string())),
   receipts: z.record(z.string(), z.object({ fingerprint: z.string(), revision: z.number(), saved: z.number(), deleted: z.number() }).strict()),
 }).strict()
@@ -83,8 +83,10 @@ export class QQKnowledgeStore {
     return withFileLock(file, async () => {
       validate(); signal?.throwIfAborted()
       const data = await this.read(file), old = data.receipts[input.operationId]
+      if(data.ownerHash&&data.ownerHash!==textVersion(subject.selfId))error('NOT_ALLOWED')
       if (old) { if (old.fingerprint !== fingerprint) error('CONFLICT'); return old }
       if (data.revision !== input.expectedRevision) error('VERSION_CONFLICT')
+      data.ownerHash=textVersion(subject.selfId)
       const save = z.array(TermInputSchema).max(100).parse(input.save), ids = new Set<string>()
       let saved = 0, deleted = 0
       for (const term of save) {
@@ -120,8 +122,8 @@ export class QQKnowledgeStore {
       validate(); signal?.throwIfAborted(); await atomicText(file, text, signal); validate(); return receipt
     }, signal)
   }
-  async cache(key: string, value?: string) {
-    const file = path.join(this.root,'memory','extractions',textVersion(key)+'.json')
+  async cache(selfId: string, key: string, value?: string) {
+    const file = path.join(this.root,'memory','extractions',textVersion(selfId),textVersion(key)+'.json')
     if (value !== undefined) { await atomicText(file,JSON.stringify({ value })); return value }
     try { return z.object({ value: z.string() }).strict().parse(JSON.parse(await readSafeText(file))).value }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error }
