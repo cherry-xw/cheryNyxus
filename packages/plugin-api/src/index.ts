@@ -232,6 +232,7 @@ export interface IngressWebEvidence {
 }
 export interface IngressLearningOperation {
   operationId: string; scopeId: string; snapshotId: string; permissionRevision: number; version: number
+  purpose: 'automatic' | 'candidate'
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; reason?: string
   localReceipt?: string; publicReceipt?: string
 }
@@ -241,7 +242,7 @@ export interface IngressLearningPreparation {
   deliveries: unknown[]; throughOrdinal: number; throughRun: number
 }
 export interface IngressLearningPrepare {
-  operationId: string; qqConfigRevision: number; afterOrdinal: number; afterRun: number; completedRequests: string[]; since?: number
+  operationId: string; purpose: 'automatic' | 'candidate'; qqConfigRevision: number; afterOrdinal: number; afterRun: number; completedRequests: string[]; since?: number
 }
 export interface IngressLearningUpdate {
   operationId: string; expectedVersion: number; status: IngressLearningOperation['status']; reason?: string

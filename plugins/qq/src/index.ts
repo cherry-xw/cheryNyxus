@@ -2278,7 +2278,7 @@ export class QQPlugin implements IngressPlugin {
     }
     const operationId = `qq-candidate-${digest([job.requestId,args.operationId])}`
     const prepared = await this.context.core.sourceConversations!.prepareLearning({entryId:'qq',channel:'qq',connectionId:this.connection!,scopeId:job.sourceScopeId,
-      operationId,qqConfigRevision:job.snapshot.revision,afterOrdinal:0,afterRun:0,completedRequests:[job.requestId]})
+      operationId,purpose:'candidate',qqConfigRevision:job.snapshot.revision,afterOrdinal:0,afterRun:0,completedRequests:[job.requestId]})
     if (!prepared || args.evidenceRefs.some((key:string)=>!prepared.evidence.some(item=>item.evidenceId === key && item.publicEligible))) fail('NOT_ALLOWED','候选只接受本次已读公开网页证据')
     validate()
     const candidateId = this.learning.enqueueCandidate(prepared,job.target,job.snapshot.preset,job.snapshot.revision)

@@ -1437,7 +1437,7 @@
     "declaration": "type QQStatus,",
     "scope": "direct",
     "verification": "qqSafeOutcomes / qqNativeReplies / qqProtocolContract / plugin suites",
-    "sourceSha256": "2ba8eb2dc29d8285480d83f6163c5d6d6898dc3bd3094775c3c50975b624cccf"
+    "sourceSha256": "44411027a5d2d7eb4f5441954a115d268712647eab06a01c0ffb5cb63665f41d"
   },
   {
     "id": "D161",

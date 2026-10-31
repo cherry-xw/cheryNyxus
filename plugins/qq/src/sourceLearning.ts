@@ -72,7 +72,7 @@ export class QQSourceLearning {
         signal.throwIfAborted()
         const position = state.positions[scope.scopeId] ?? { ordinal: 0, run: 0 }, operationId = `qq-learning-${randomUUID()}`
         const prepared = await api.prepareLearning({ ...access(scope.scopeId), operationId, qqConfigRevision: active.revision,
-          afterOrdinal: position.ordinal, afterRun: position.run, completedRequests: active.completedRequests, since: state.since })
+          purpose:'automatic', afterOrdinal: position.ordinal, afterRun: position.run, completedRequests: active.completedRequests, since: state.since })
         signal.throwIfAborted()
         const now=this.input.current()
         if(now.foreground||!now.config.memoryEnabled||!now.config.learningEnabled||now.connectionId!==active.connectionId||now.scopes[target]?.scopeId!==scope.scopeId) return
@@ -91,7 +91,7 @@ export class QQSourceLearning {
     try {
       check(task)
       const prepared = await api.prepareLearning({ ...access(task.scopeId), operationId: task.operationId, qqConfigRevision: task.revision,
-        afterOrdinal: 0, afterRun: 0, completedRequests: [] })
+        purpose:task.candidate?'candidate':'automatic', afterOrdinal: 0, afterRun: 0, completedRequests: [] })
       if (!prepared) fail('SOURCE_NOT_FOUND')
       check(task)
       if (prepared.operation.status === 'completed') { task.state = 'completed'; save(); return }

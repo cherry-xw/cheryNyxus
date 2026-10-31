@@ -1055,15 +1055,25 @@ export class SourceContextRepository {
     return this.db.transaction(() => {
       const scope = this.scope(authority, scopeId, ['maintenance'])
       SourceIdSchema.parse(input.operationId)
+      if (!['automatic','candidate'].includes(input.purpose)) sourceContextError('INVALID_PARAMS')
       if (![input.afterOrdinal,input.afterRun,input.qqConfigRevision].every(value => Number.isSafeInteger(value) && value >= 0) || input.completedRequests.length > 10000) sourceContextError('INVALID_PARAMS')
       const old = this.db.prepare('SELECT input_json FROM source_learning_operations WHERE operation_id=? AND scope_id=?').get(input.operationId, scopeId) as { input_json: string } | undefined
-      if (old) return { ...JSON.parse(old.input_json), operation: this.learningStatus(authority, scopeId, input.operationId) }
+      if (old) {
+        const operation=this.learningStatus(authority,scopeId,input.operationId)
+        if(operation.purpose!==input.purpose)sourceContextError('SOURCE_CONFLICT')
+        return { ...JSON.parse(old.input_json), operation }
+      }
       const selected = this.allRecords(scopeId).filter(record => record.ingestOrdinal > input.afterOrdinal).slice(0, 100)
       const records = selected.filter(record => record.receivedAt >= (input.since ?? 0))
-      const selectedRuns = (this.db.prepare('SELECT rowid AS ordinal,* FROM source_runs WHERE scope_id=? AND rowid>? ORDER BY rowid').all(scopeId, input.afterRun) as Array<{ ordinal: number; run_id: string; request_id: string }>)
-        .filter(run => input.completedRequests.includes(run.request_id)).slice(0, 50)
-      const runs=selectedRuns.filter(run=>{const snapshotRow=this.db.prepare('SELECT data_json FROM source_snapshots WHERE request_id=? AND scope_id=? AND parent_snapshot_id IS NULL').get(run.request_id,scopeId) as JsonRow|undefined
-        return snapshotRow&&JSON.parse(snapshotRow.data_json).selectedAt >= (input.since??0)})
+      const selectedRuns = this.db.prepare(`SELECT r.rowid AS ordinal,r.* FROM source_runs r
+        WHERE r.scope_id=? AND r.request_id IN (SELECT value FROM json_each(?))
+          AND EXISTS (SELECT 1 FROM source_snapshots s WHERE s.request_id=r.request_id AND s.scope_id=r.scope_id
+            AND s.parent_snapshot_id IS NULL AND json_extract(s.data_json,'$.selectedAt')>=?)
+          AND (?='candidate' OR NOT EXISTS (SELECT 1 FROM source_learning_operations l, json_each(l.input_json,'$.runs') registered
+            WHERE l.scope_id=r.scope_id AND json_extract(l.data_json,'$.purpose')='automatic'
+              AND json_extract(registered.value,'$.runId')=r.run_id))
+        ORDER BY r.rowid LIMIT 50`).all(scopeId,JSON.stringify(input.completedRequests),input.since??0,input.purpose) as Array<{ordinal:number;run_id:string;request_id:string}>
+      const runs=selectedRuns
       if (!selected.length && !selectedRuns.length) return null
       const evidence: import('@chery/plugin-api').IngressWebEvidence[] = []
       for (const run of runs) for (const row of this.db.prepare("SELECT * FROM source_tool_observations WHERE scope_id=? AND run_id=? AND tool_name='web_fetch'").all(scopeId, run.run_id) as Array<{ call_id: string; data_json: string }>) {
@@ -1089,7 +1099,7 @@ export class SourceContextRepository {
         orderedItems: records.map(record => ({ type: 'message', ...ref(record), selectionReasons: ['recent'], parts: record.parts.map(part => ({ partId: part.partId, mode: 'expand' })) })) })
       this.db.prepare('INSERT INTO source_snapshots(snapshot_id,request_id,scope_id,fingerprint,data_json) VALUES (?,?,?,?,?)')
         .run(snapshot.snapshotId, input.operationId, scopeId, sourceFingerprint(input), JSON.stringify(snapshot))
-      const operation: import('@chery/plugin-api').IngressLearningOperation = { operationId: input.operationId, scopeId, snapshotId: snapshot.snapshotId, permissionRevision: scope.permissionRevision, version: 1, status: 'pending' }
+      const operation: import('@chery/plugin-api').IngressLearningOperation = { operationId: input.operationId, purpose:input.purpose, scopeId, snapshotId: snapshot.snapshotId, permissionRevision: scope.permissionRevision, version: 1, status: 'pending' }
       const deliveries = (this.db.prepare(`SELECT d.frame_json,f.data_json AS result_json FROM source_deliveries d LEFT JOIN source_delivery_facts f
         ON f.delivery_id=d.delivery_id AND f.revision=(SELECT MAX(revision) FROM source_delivery_facts WHERE delivery_id=d.delivery_id) WHERE d.scope_id=?`).all(scopeId) as Array<{ frame_json: string; result_json?: string }>).map(row => {
         const frame = JSON.parse(row.frame_json)
@@ -1097,7 +1107,7 @@ export class SourceContextRepository {
           status: row.result_json ? JSON.parse(row.result_json).status : 'pending' }
       }).filter(delivery => runs.some(run => run.request_id === delivery.requestId))
       const prepared: import('@chery/plugin-api').IngressLearningPreparation = { operation, records, evidence, deliveries,
-        throughOrdinal: snapshot.throughIngestOrdinal, throughRun: selectedRuns.at(-1)?.ordinal ?? input.afterRun,
+        throughOrdinal: snapshot.throughIngestOrdinal, throughRun: Math.max(input.afterRun,selectedRuns.at(-1)?.ordinal??0),
         runs: runs.map(run => ({ requestId: run.request_id, runId: run.run_id, messages: this.runMessages(authority, scopeId, run.request_id)
           .map(message => ({ state: message.state, body: { role: message.body.role, content: message.body.content } })) })) }
       this.db.prepare('INSERT INTO source_learning_operations VALUES (?,?,?,?)').run(input.operationId, scopeId, JSON.stringify(operation), JSON.stringify(prepared))
