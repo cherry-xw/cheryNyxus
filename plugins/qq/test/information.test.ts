@@ -37,6 +37,17 @@ describe('QQ read-only information', () => {
     const result=await tool.execute({},{} as any,{requestView:{requestId:'r',identity:{source:'plugin',channel:'qq',subject}}} as any)
     expect(result.status).toBe('ok');expect(run).toHaveBeenCalledWith('r',expect.objectContaining({kind:'history',historySource:'retained',count:50}))
   })
+  it.each([
+    ['qq_history',{source:'retained',count:50},{kind:'history',historySource:'retained',count:50}],
+    ['qq_history',{source:'platform',count:50},{kind:'history',historySource:'platform',count:50}],
+    ['qq_information',{kind:'members',query:'小明',count:50},{kind:'members',query:'小明',count:50}],
+    ['qq_information',{kind:'voices',query:'固定',count:50},{kind:'voices',query:'固定',count:50}],
+  ])('accepts the documented %s example and maps only internal history parameters',async(name,input,expected)=>{
+    const run=vi.fn(async()=>({items:[]})),tool=informationTools(run).find(tool=>tool.sense.definition.function.name===name)!.sense.executor
+    const ctx={requestView:{requestId:'r',identity:{source:'plugin',channel:'qq',subject:{...subject,conversationType:'group',groupId:'456'}}}} as any
+    expect((await tool.execute(input,{} as any,ctx)).status).toBe('ok')
+    expect(run).toHaveBeenCalledWith('r',expect.objectContaining(expected))
+  })
   it('checks membership before personal profiles and minimizes returned fields',async()=>{
     const call=vi.fn(async(name:string)=> name==='get_group_member_list'?{data:[{user_id:123}]}:{data:{user_id:123,country:'中国',phone:'secret',homeTown:'1-2-3'}})
     expect(await queryInformation(call,{conversationType:'group',targetId:'999',information:{kind:'profile',userId:'123',count:50}})).toEqual({user_id:123,country:'中国'})

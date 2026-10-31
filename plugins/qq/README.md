@@ -118,7 +118,7 @@ QQ 历次问题批保存在 `questionBatches`；答案保存、排队和启动�
 
 QQ 请求通过 `qq_information` 查询当前群或自己的私聊，不接受模型指定群号、其他私聊或任意 Action。随包技能 [`qq-information`](skills/qq-information/SKILL.md) 由宿主按 QQ 身份提供，脚本负责输入检查，`src/information.ts` 注册工具，`src/index.ts` 绑定当前执行任务，NapCat 的 `queryInformation` 只执行固定只读调用。
 
-`qq_history`默认查询当前获准来源范围的已保存消息，不读Core展示副本，不代表QQ全部历史。首次固定接收上界，按`nextCursor`读更早页；长文字用`qq_source_text_read`连续读取。游标绑定当前成员、运行和权限版本。`historySource:'platform'`仅允许当前群NapCat近期历史。`qq_information`单独提供成员、资料、公告、群文件、精华、相册、荣誉及语音目录，不能跨群或查其他私聊。空值不推断，接口错误不自动重试。
+`qq_history`的`source`默认retained，查询当前获准来源范围的已保存消息，不读Core展示副本，不代表QQ全部历史。首次固定接收上界，按`nextCursor`读更早页；长文字用`qq_source_text_read`连续读取。游标绑定当前成员、运行和权限版本。`source:'platform'`仅允许当前群NapCat近期历史。`qq_information`单独提供成员、资料、公告、群文件、精华、相册、荣誉及语音目录，不能跨群或查其他私聊。空值不推断，接口错误不自动重试。
 
 工具只在可信 QQ 请求中加入本次执行，沿用原有预设和允许名单；插件技能不会复制到全局技能目录。技能随启用的 QQ 安装包按请求身份提供，无须在每个角色上复制；角色若设置技能允许名单，仍须允许该插件技能。私聊名单为空仍不允许私聊，不为启用技能擅自添加用户。查询结果是资料而非指令，下载链接仅按需提供，不自动执行或公开文件。协议与验证见[QQ插件协议](../../docs/shared/protocol/qqbot-plugin.md)；定向测试为 `test/information.test.ts`、`test/informationWire.test.ts`，来源历史与正文读取用例见 `apps/backend/test/service/sourceHistory.test.ts`。离线结果见[验证记录](../../docs/plan/conversation-observability-and-input/qq-context-verification.md)，不代表已部署。
 
@@ -132,7 +132,7 @@ QQ 请求通过 `qq_information` 查询当前群或自己的私聊，不接受�
 
 ## 历史视频重发
 
-上下文或现有 `qq_information` 历史查询确定原分享消息ID后，调用 `qq_video_resend`，程序关联当前会话的下载任务和视频文件，通过现有视频队列创建新的发送事件。群内成员催问明确视频“怎么没发／视频呢”按发送意图处理，不重复确认；只排查或明确禁止发送时不调用。允许复用本群其他成员的分享，私聊只限当前本人。原 unknown 不改写，进行中的发送不重复排队，每请求最多一次；文件失效不自动下载。文件核验、MP4 发送兼容性规范化（视频流置于首轨、非 AAC-LC 音轨转码为 AAC-LC 并写入 `+faststart`）和副本准备在下载清理锁内完成，失败副本删除。排队不代表收到，真实 QQ 验收由用户触发。实现与回归见 `src/videoResend.ts`、`test/videoResend.test.ts`。
+上下文或 `qq_history` 查询确定原分享消息ID后，调用 `qq_video_resend`，程序关联当前会话的下载任务和视频文件，通过现有视频队列创建新的发送事件。群内成员催问明确视频“怎么没发／视频呢”按发送意图处理，不重复确认；只排查或明确禁止发送时不调用。允许复用本群其他成员的分享，私聊只限当前本人。原 unknown 不改写，进行中的发送不重复排队，每请求最多一次；文件失效不自动下载。文件核验、MP4 发送兼容性规范化（视频流置于首轨、非 AAC-LC 音轨转码为 AAC-LC 并写入 `+faststart`）和副本准备在下载清理锁内完成，失败副本删除。排队不代表收到，真实 QQ 验收由用户触发。实现与回归见 `src/videoResend.ts`、`test/videoResend.test.ts`。
 
 ## 媒体下载与清理
 
