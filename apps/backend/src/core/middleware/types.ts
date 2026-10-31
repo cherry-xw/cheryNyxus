@@ -35,10 +35,13 @@ export type { LLMAdapter } from '../llm/adapter'
  * 用户输入条目
  */
 export interface UserInputEntry {
+  sourceInput?: import('@chery/protocol').SourceInput
   parts?: import('@chery/protocol').MessagePart[]
   requestExecution?: {
     signal?: AbortSignal
     execution?: { toolHistory: 'request'; retry: 'never' }
+    sourceInput?: import('@chery/protocol').SourceInput
+    sourceCapacity?: import('@chery/plugin-api').IngressSourceCapacity
     validate(): void
   }
   requestId?: string
@@ -154,6 +157,7 @@ export interface AdaptersGroup {
  * Agent 运行期消息快照（agent → service 事件载荷）
  */
 export interface AgentMessage {
+  sourceInput?: import('@chery/protocol').SourceInput
   parts?: import('@chery/protocol').MessagePart[]
   fileOperations?: import('@chery/protocol').FileOperationRecord[]
   providerContinuation?: Record<string, unknown>
@@ -226,6 +230,8 @@ export interface MiddlewareContext {
   requestExecution?: {
     signal?: AbortSignal
     execution?: { toolHistory: 'request'; retry: 'never' }
+    sourceInput?: import('@chery/protocol').SourceInput
+    sourceCapacity?: import('@chery/plugin-api').IngressSourceCapacity
     validate(): void
   }
   refreshRequestRuntime?: () => void

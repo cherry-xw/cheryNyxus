@@ -102,7 +102,7 @@ export class MessageJournal {
     metadata?: Omit<Partial<UserInputEntry>, 'content' | 'time'>,
   ): UserInputEntry | undefined {
     const trimmed = content.trim()
-    if (!trimmed && !metadata?.parts?.length) return undefined
+    if (!trimmed && !metadata?.parts?.length && !metadata?.sourceInput) return undefined
     if (this.soul.userInputs.length >= MAX_USER_INPUTS) {
       // V2 command inputs carry a commandId and must never be silently lost.
       // Legacy chat.send has historical drop-oldest backpressure semantics;
@@ -126,6 +126,7 @@ export class MessageJournal {
     const entry: UserInputEntry = {
       content: trimmed,
       ...(metadata?.parts ? { parts: structuredClone(metadata.parts) } : {}),
+      ...(metadata?.sourceInput ? { sourceInput: structuredClone(metadata.sourceInput) } : {}),
       time: Date.now(),
       ...(metadata?.inputId ? { inputId: metadata.inputId } : {}),
       ...(metadata?.requestIdentity ? { requestIdentity: metadata.requestIdentity } : {}),
@@ -166,6 +167,7 @@ export class MessageJournal {
         role: input.role ?? 'user',
         content: input.content,
         ...(input.parts ? { parts: structuredClone(input.parts) } : {}),
+        ...(input.sourceInput ? { sourceInput: structuredClone(input.sourceInput) } : {}),
         createdAt: input.time, // 用户发送时间
         updateAt, // 注入消息列表时间
         ...(input.ephemeral ? { ephemeral: true } : {}),
@@ -175,6 +177,7 @@ export class MessageJournal {
         role: input.role ?? 'user',
         content: input.persistedContent ?? input.content,
         ...(input.parts ? { parts: structuredClone(input.parts) } : {}),
+        ...(input.sourceInput ? { sourceInput: structuredClone(input.sourceInput) } : {}),
         createdAt: input.time,
         updateAt,
         ...(input.inputId ? { inputId: input.inputId } : {}),

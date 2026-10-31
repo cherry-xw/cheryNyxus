@@ -8,10 +8,12 @@ import type { SenseCallInfo, ServerToolCallInfo, ThinkingBlock } from '@/core/me
 import type { ObservationEnvelope } from '@/core/sense/senseCreator.js'
 import { assertChanged, getChatMonthlyDb } from './chatStorage.js'
 import type { MessagePart, FileOperationRecord } from '@chery/protocol'
+import { SourceInputSchema, type SourceInput } from '@chery/protocol'
 import { normalizeMessageParts, normalizeFileOperations, parseStoredParts, parseStoredFileOperations } from '@/utils/messageParts.js'
 import { persistAssetReferences } from './assets.js'
 
 export interface MessageRow {
+  source_input?: string | null
   id: string
   chat_id: string
   role: string
@@ -41,6 +43,7 @@ export interface MessageRow {
 }
 
 export interface MessageData {
+  sourceInput?: SourceInput
   parts?: MessagePart[]
   fileOperations?: FileOperationRecord[]
   providerContinuation?: Record<string, unknown>
@@ -173,8 +176,8 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
   persistAssetReferences(soulDb, chatId, 'message', messageId, normalized.parts, data.fileOperations)
 
   const stmt = monthlyDb.prepare(`
-    INSERT INTO messages (id, chat_id, role, content, thinking, thinking_blocks, sense_calls, hash, observation, replace_state, replace_by, replace_content, original_content, revoked, model_excluded, created_at, runtime, context_compaction, context_compaction_tokens, epoch_id, parts, file_operations, provider_continuation)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, chat_id, role, content, thinking, thinking_blocks, sense_calls, hash, observation, replace_state, replace_by, replace_content, original_content, revoked, model_excluded, created_at, runtime, context_compaction, context_compaction_tokens, epoch_id, parts, file_operations, provider_continuation, source_input)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   stmt.run(
@@ -201,6 +204,7 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     partsJson,
     operationsJson,
     continuationJson,
+    data.sourceInput ? JSON.stringify(SourceInputSchema.parse(data.sourceInput)) : null,
   )
 
   // P1-8：维护冗余 message_count，chatList 无需 N+1 查 messages
@@ -219,6 +223,7 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     parts: partsJson,
     file_operations: operationsJson,
     provider_continuation: continuationJson,
+    source_input: data.sourceInput ? JSON.stringify(SourceInputSchema.parse(data.sourceInput)) : null,
     thinking: data.thinking ?? null,
     thinking_blocks: data.thinkingBlocks ? JSON.stringify(data.thinkingBlocks) : null,
     sense_calls: data.senseCall ? JSON.stringify(data.senseCall) : null,
@@ -236,20 +241,6 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     context_compaction_tokens: data.contextCompactionTokens ?? null,
     epoch_id: chat.active_epoch_id,
   }
-}
-
-/**
- * 获取消息（路由到月份文件）
- */
-export function getRecentConversationMessages(chatId: string, count: number) {
-  if (!Number.isInteger(count) || count < 1 || count > 100) throw new Error('Invalid history count')
-  const db = getChatMonthlyDb(chatId)
-  if (!db) return []
-  return (db.prepare(`SELECT id, role, substr(COALESCE(replace_content, content), 1, 400) AS content, created_at AS time
-    FROM messages WHERE chat_id = ? AND revoked = 0 AND model_excluded = 0
-    AND role IN ('user', 'assistant') AND COALESCE(context_compaction, 0) = 0
-    AND COALESCE(replace_content, content) IS NOT NULL
-    ORDER BY created_at DESC, rowid DESC LIMIT ?`).all(chatId, count) as Array<{id:string;role:string;content:string;time:number}>).reverse()
 }
 
 export function getMessages(chatId: string, epochId?: string): MessageRow[] {
@@ -458,6 +449,7 @@ export function parseMessageRow(row: MessageRow): MessageData {
     : undefined
   return {
     role: row.role as MessageData['role'],
+    sourceInput: row.source_input ? SourceInputSchema.parse(JSON.parse(row.source_input)) : undefined,
     content: parts === undefined ? row.content ?? undefined : normalizeMessageParts(undefined, parts).content,
     parts,
     fileOperations: parseStoredFileOperations(row.file_operations),

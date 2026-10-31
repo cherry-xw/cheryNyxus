@@ -1,5 +1,5 @@
 import { getSoulDb } from './index.js'
-import type { MessagePart } from '@chery/protocol'
+import { SourceInputSchema, type MessagePart, type SourceInput } from '@chery/protocol'
 import { normalizeMessageParts } from '@/utils/messageParts.js'
 
 export interface PendingInputRow {
@@ -10,6 +10,7 @@ export interface PendingInputRow {
   command_id: string
   content: string
   parts?: string | null
+  source_input?: string | null
   queue_sequence: number
   state: 'accepted' | 'started' | 'queued' | 'consumed' | 'cancelled' | 'rejected'
   accepted_at: number
@@ -26,6 +27,7 @@ export function addPendingInput(input: {
   commandId: string
   content: string
   parts?: MessagePart[]
+  sourceInput?: SourceInput
   queueSequence: number
   state: PendingInputRow['state']
   acceptedAt: number
@@ -37,8 +39,8 @@ export function addPendingInput(input: {
   getSoulDb()
     .prepare(
       `INSERT INTO pending_inputs
-        (input_id, chat_id, message_id, client_message_id, command_id, content, queue_sequence, state, accepted_at, epoch_id, parts)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (input_id, chat_id, message_id, client_message_id, command_id, content, queue_sequence, state, accepted_at, epoch_id, parts, source_input)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.inputId,
@@ -52,6 +54,7 @@ export function addPendingInput(input: {
       input.acceptedAt,
       epoch?.active_epoch_id ?? null,
       JSON.stringify(normalized.parts),
+      input.sourceInput ? JSON.stringify(SourceInputSchema.parse(input.sourceInput)) : null,
     )
 }
 

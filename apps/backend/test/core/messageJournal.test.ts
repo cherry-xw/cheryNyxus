@@ -17,20 +17,41 @@ describe('MessageJournal compact', () => {
     }
     const journal = new MessageJournal(soul, logger)
     const summary = journal.appendAssistant({ content: 'summary', thinking: '', senseCalls: [] })
-    expect(summary.contextCompaction).toBe(true)
-    expect(summary.contextCompactionTokens).toBeGreaterThan(0)
+    // User text cannot turn an ordinary assistant response into a verified summary.
+    expect(summary.contextCompaction).toBeUndefined()
+    expect(summary.contextCompactionTokens).toBeUndefined()
+    journal.compactToLatestSummary()
+    expect(journal.getMessages()).toHaveLength(4)
+    // The dedicated summary writer supplies the explicit committed marker.
+    soul.messages!.at(-1)!.contextCompaction = true
 
     journal.compactToLatestSummary()
 
     expect(journal.getMessages()).toHaveLength(2)
     expect(journal.getMessages()[1]).toMatchObject({
       role: 'system',
+      contextCompaction: true,
       content: expect.stringContaining('summary'),
     })
   })
 })
 
 describe('MessageJournal injected inputs', () => {
+  it('accepts a source-only anchor without manufacturing text and preserves its fixed source identity', () => {
+    const soul: SoulGroup = { chatId: 'source-only-journal', senseSharedData: new Map(), userInputs: [], messages: [] }
+    const journal = new MessageJournal(soul, logger)
+    const sourceInput: import('@chery/protocol').SourceInput = { kind: 'source_snapshot', requestId: 'request', turnId: 'request',
+      scopeId: 'scope', snapshotId: 'snapshot', actorRecord: { recordId: 'actor', revision: 1 }, inputRecords: [{ recordId: 'actor', revision: 1 }] }
+    expect(journal.appendUserInput('')).toBeUndefined()
+    const entry = journal.appendUserInput('', { commandId: 'source-command', sourceInput })
+    expect(entry?.content).toBe('')
+    sourceInput.snapshotId = 'later-mutation'
+    const result = journal.appendUserMessages()
+    expect(result.consumedCount).toBe(1)
+    expect(result.messages[0]).toMatchObject({ content: '', sourceInput: { snapshotId: 'snapshot' } })
+    expect(journal.getMessages()[0]).toMatchObject({ content: '', sourceInput: { snapshotId: 'snapshot' } })
+  })
+
   it('keeps fixed asset versions and reference-only usage in memory and persistence effects', () => {
     const soul: SoulGroup = { chatId: 'chat', senseSharedData: new Map(), userInputs: [], messages: [] }
     const journal = new MessageJournal(soul, logger)
