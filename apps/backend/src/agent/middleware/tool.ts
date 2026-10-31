@@ -52,6 +52,7 @@ interface PendingSenseCall {
   authorization: ToolAuthorization
   approvalSnapshot?: ApprovalSnapshot
   preDenied?: boolean
+  invalidArguments?: boolean
 }
 
 /**
@@ -457,7 +458,9 @@ export async function* executeRequestTool(
 ): AsyncGenerator<SenseStartedChunk | SenseTriggerChunk | { type: 'sense_execution_completed'; id: string }, string> {
   if (ctx.requestToolPhase && !ctx.requestToolPhase.includes(name)) return '工具不属于当前请求阶段。'
   const { call } = buildSenseTrigger(ctx, id, name, argsJson, true)
-  if (call.preDenied) return '工具调用被拒绝。'
+  if (call.preDenied) return call.invalidArguments
+    ? '工具参数无效，本次调用未执行。请按工具定义检查必填项、类型和长度限制；这不是外部执行或消息发送失败。'
+    : '工具权限未通过，本次调用未执行。不能据此判断外部服务或消息发送失败。'
   if (call.supervisionLevel !== SupervisionLevel.auto)
     return '此入口无法进行人工审批，不能自动批准。'
   const execution = doExecuteSense(ctx, name, argsJson, id, call.authorization)
@@ -528,6 +531,7 @@ function buildSenseTrigger(
           supervisionLevel: SupervisionLevel.auto,
           authorization: deniedAuth,
           preDenied: true,
+          invalidArguments: true,
         },
       }
     }

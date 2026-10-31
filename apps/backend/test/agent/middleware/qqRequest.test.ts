@@ -7,6 +7,8 @@ import { createMockContext, createMockRuntime, createTestSense, mockLLMAdapter,
   mockMessageAdapter, mockSenseAdapter, makeNext } from '../helpers/fakeContext.js'
 import { collectChunks } from '../helpers/chunkAssert.js'
 import { registerFunctionHook } from '@/agent/hooks/functions.js'
+import { z } from 'zod'
+import { compileRoleSecurity } from '@/core/security/rolePolicy.js'
 
 const execution = { execution: { toolHistory: 'request' as const, retry: 'never' as const }, validate() {} }
 describe('request-local tool loop', () => {
@@ -70,6 +72,49 @@ describe('request-local tool loop', () => {
     expect(step.value).toContain('appId')
     expect(step.value).not.toBe('工具调用被拒绝。')
     expect(execute).toHaveBeenCalledTimes(1)
+  })
+  it.each([{}, { text: 42 }, { text: 'x'.repeat(501) }])('reports invalid arguments as not executed without approving or retrying: %j', async input => {
+    const execute = vi.fn(async () => ({ content: 'must not run' }))
+    const ctx = createMockContext({ runtime: createMockRuntime({ senses: [createTestSense('reply_probe', execute,
+      SupervisionLevel.manual, z.object({ text: z.string().min(1).max(500) }).strict())] }) })
+    const generator = executeRequestTool(ctx, 'reply_probe', JSON.stringify(input), 'invalid-reply')
+    const result = await generator.next()
+    expect(result).toMatchObject({ done: true, value: expect.stringContaining('工具参数无效，本次调用未执行') })
+    expect(result.value).toContain('长度限制')
+    expect(result.value).toContain('这不是外部执行或消息发送失败')
+    expect(execute).not.toHaveBeenCalled()
+  })
+  it('does not copy input, custom validation prose or issue paths into parameter rejection feedback', async () => {
+    const execute = vi.fn(async () => ({ content: 'must not run' }))
+    const ctx = createMockContext({ runtime: createMockRuntime({ senses: [createTestSense('validation_probe', execute,
+      SupervisionLevel.auto, z.object({ 'private-field': z.string().refine(() => false, { message: 'private-diagnostic ?token=secret' }) }))] }) })
+    const result = await executeRequestTool(ctx, 'validation_probe', '{"private-field":"secret-value"}', 'private').next()
+    expect(result).toMatchObject({ done: true, value: expect.stringContaining('工具参数无效') })
+    expect(result.value).not.toMatch(/private|secret|token/)
+    expect(execute).not.toHaveBeenCalled()
+  })
+  it('distinguishes permission denial from invalid arguments without exposing role policy', async () => {
+    const execute = vi.fn(async () => ({ content: 'must not run' }))
+    const runtime = createMockRuntime({ senses: [createTestSense('reply_probe', execute, SupervisionLevel.auto, z.object({ text: z.string() }))] })
+    runtime.roleSecurity = compileRoleSecurity('private-role', { brain: 'test', senseGroup: 'test',
+      permissions: { template: 'trusted', tools: { reply_probe: 'deny' } } })
+    const ctx = createMockContext({ runtime })
+    const result = await executeRequestTool(ctx, 'reply_probe', '{"text":"private-value"}', 'permission').next()
+    expect(result).toMatchObject({ done: true, value: expect.stringContaining('工具权限未通过，本次调用未执行') })
+    expect(result.value).not.toContain('工具参数无效')
+    expect(result.value).not.toMatch(/private|reply_probe/)
+    expect(execute).not.toHaveBeenCalled()
+  })
+  it('still executes a separately submitted valid argument exactly once', async () => {
+    const execute = vi.fn(async () => ({ content: 'queued' }))
+    const ctx = createMockContext({ runtime: createMockRuntime({ senses: [createTestSense('reply_probe', execute,
+      SupervisionLevel.auto, z.object({ text: z.string().max(500) }))] }) })
+    const invalid = await executeRequestTool(ctx, 'reply_probe', JSON.stringify({ text: 'x'.repeat(501) }), 'too-long').next()
+    expect(invalid.done).toBe(true); expect(execute).not.toHaveBeenCalled()
+    const valid = executeRequestTool(ctx, 'reply_probe', JSON.stringify({ text: 'x'.repeat(500) }), 'valid')
+    let result = await valid.next()
+    while (!result.done) result = await valid.next()
+    expect(result.value).toBe('queued'); expect(execute).toHaveBeenCalledTimes(1)
   })
   it('never restarts a failed request chain', async () => {
     const ctx = createMockContext({})

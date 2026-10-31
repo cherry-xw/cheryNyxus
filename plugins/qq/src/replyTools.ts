@@ -2,12 +2,14 @@ import { z } from 'zod'
 import type { IngressContext } from '@chery/plugin-api'
 
 type Registration = Parameters<IngressContext['tools']['register']>[0]
+const replyTextLimit = 500
+const voiceTextLimit = 200
 export const replyActionSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('quote'), userId: z.string().regex(/^[1-9]\d{0,19}$/).optional(), messageId: z.string().regex(/^-?\d+$/), text: z.string().min(1).max(500), completeReply: z.boolean() }).strict(),
-  z.object({ kind: z.literal('mention'), userId: z.string().regex(/^[1-9]\d{0,19}$/), text: z.string().min(1).max(500), completeReply: z.boolean() }).strict(),
+  z.object({ kind: z.literal('quote'), userId: z.string().regex(/^[1-9]\d{0,19}$/).optional(), messageId: z.string().regex(/^-?\d+$/), text: z.string().min(1).max(replyTextLimit), completeReply: z.boolean() }).strict(),
+  z.object({ kind: z.literal('mention'), userId: z.string().regex(/^[1-9]\d{0,19}$/), text: z.string().min(1).max(replyTextLimit), completeReply: z.boolean() }).strict(),
   z.object({ kind: z.literal('reaction'), emojiId: z.string().regex(/^\d+$/), completeReply: z.boolean() }).strict(),
   z.object({ kind: z.literal('poke'), userId: z.string().regex(/^[1-9]\d{0,19}$/), completeReply: z.boolean() }).strict(),
-  z.object({ kind: z.literal('voice'), text: z.string().min(1).max(200), completeReply: z.boolean() }).strict(),
+  z.object({ kind: z.literal('voice'), text: z.string().min(1).max(voiceTextLimit), completeReply: z.boolean() }).strict(),
 ])
 export type ReplyAction = z.infer<typeof replyActionSchema>
 export interface QQReplyBridge {
@@ -36,11 +38,11 @@ export function createReplyTools(bridge: QQReplyBridge): Registration[] {
       } },
   ]
   const actions = [
-    { kind: 'quote', name: 'qq_quote_reply', description: '引用当前群背景中的真实消息并回复，不猜消息ID，不跨群引用。', properties: { messageId: { type: 'string' }, text: { type: 'string' }, userId: { type: 'string' } } },
-    { kind: 'mention', name: 'qq_mention', description: '原生@当前群已核实成员并发送文字，不支持@全体。', properties: { userId: { type: 'string' }, text: { type: 'string' } } },
+    { kind: 'quote', name: 'qq_quote_reply', description: `引用当前群背景中的真实消息并回复，不猜消息ID，不跨群引用。text最多${replyTextLimit}字符，长回复直接输出普通正文，由系统拆分发送，不换工具绕过限制。`, properties: { messageId: { type: 'string' }, text: { type: 'string', minLength: 1, maxLength: replyTextLimit }, userId: { type: 'string' } } },
+    { kind: 'mention', name: 'qq_mention', description: `原生@当前群已核实成员并发送文字，不支持@全体。text最多${replyTextLimit}字符，长回复直接输出普通正文，由系统拆分发送，不换工具绕过限制。`, properties: { userId: { type: 'string' }, text: { type: 'string', minLength: 1, maxLength: replyTextLimit } } },
     { kind: 'reaction', name: 'qq_react', description: '用已核实的QQ表情回应本轮消息；可作为完整回复，不另发文字。', properties: { emojiId: { type: 'string' } } },
     { kind: 'poke', name: 'qq_poke', description: '戳当前群已核实成员一次；不能随机选人或连续骚扰。', properties: { userId: { type: 'string' } } },
-    { kind: 'voice', name: 'qq_voice_reply', description: '使用系统固定声音发送一次简短语音，不能选择或更换声音。仅在本轮允许语音时使用，链接和代码优先文字。', properties: { text: { type: 'string' } } },
+    { kind: 'voice', name: 'qq_voice_reply', description: `使用系统固定声音发送一次简短语音，不能选择或更换声音。text最多${voiceTextLimit}字符。仅在本轮允许语音时使用，链接和代码优先文字。`, properties: { text: { type: 'string', minLength: 1, maxLength: voiceTextLimit } } },
   ] as const
   for (const action of actions) {
     const shape = replyActionSchema.options.find(s => s.shape.kind.value === action.kind)!

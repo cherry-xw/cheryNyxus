@@ -168,6 +168,34 @@ it('installed QQ persists a safe entry failure when Core submit rejects before a
   expect(s.state().outbox.filter((out: any) => out.frame.type === 'qq.request.failed')).toHaveLength(1)
 }, 20000)
 
+it('installed QQ keeps invalid reply parameters distinct from actual ordinary-text delivery', async () => {
+  const final = '普通正文照常发送，不把执行前的参数拒绝当作 QQ 发送失败。'
+  config.roles.reviewer!.brain = addSenseBrain('qq-invalid-reply-parameters', 'qq_quote_reply',
+    JSON.stringify({ messageId: '310', text: '字'.repeat(501), completeReply: true }), final)
+  const s = await setup()
+  await s.call('qq.event.submit', event('310'))
+  await vi.waitFor(() => expect(s.state().outbox.some((out: any) => out.frame.type === 'qq.reply.part')).toBe(true), { timeout: 10000 })
+  const state = s.state(), job = state.jobs[0]
+  expect(s.executionErrors).toEqual([])
+  expect(state.outbox.some((out: any) => ['qq.reply.action', 'qq.request.failed', 'qq.tool.icon'].includes(out.frame.type))).toBe(false)
+  const history = getSoulDb().prepare('SELECT data_json FROM source_run_messages WHERE run_id=? ORDER BY sequence').all(job.coreRunId)
+    .map((row: any) => JSON.parse(row.data_json))
+  const results = history.filter((message: any) => message.role === 'sense')
+  expect(results).toHaveLength(1)
+  expect(results[0].content).toContain('工具参数无效，本次调用未执行')
+  expect(results[0].content).toContain('这不是外部执行或消息发送失败')
+  expect(results[0].content).not.toContain('字'.repeat(501))
+  const reply = state.outbox.find((out: any) => out.frame.type === 'qq.reply.part')
+  expect(reply.frame.data.text).toBe(final)
+  await vi.waitFor(() => expect(s.state().outbox.find((out: any) => out.frame.data.eventId === reply.frame.data.eventId).status).toBe('inflight'))
+  const nativeCall = vi.fn(async () => ({ message_id: 9310 }))
+  const adapter = new Adapter({ dataPath: path.join(root!, 'native-invalid-reply'), actions: { call: nativeCall }, logger: {}, pluginManager: { config: {} } } as any, wire! as any)
+  ;(adapter as any).selfId = '123'; (adapter as any).authenticated = true
+  await (adapter as any).notification(reply.frame)
+  expect(nativeCall).toHaveBeenCalledTimes(1)
+  expect(s.state().outbox.find((out: any) => out.frame.data.eventId === reply.frame.data.eventId)).toMatchObject({ status: 'sent', messageIds: ['9310'] })
+}, 20000)
+
 it.each([0,1,2])('real ask tool and original run question continuation; resume fault mode=%s',async lost=>{
   resetMockProviderState()
   const brain=addSenseBrain(`qq-safe-question-${lost}`,'ask_user_question',JSON.stringify({question:'选择画质？',rationale:'private rationale',nextStep:'continue',options:[{label:'原画'},{label:'取消'}],multiSelect:false}),'offline final')
