@@ -5,22 +5,28 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { openSourceDirectory, separateSourceRoot, sourceDirectory } from './sourceWorkspace.mjs'
 
 const exec = promisify(execFile)
 const idPattern = /^[1-9]\d{0,19}$/
 export function validateTask(input) {
-  const { subject, command, scope = 'auto', cwd = '.', limits = {} } = input ?? {}
+  const { subject, command, scope = 'auto', cwd = '.', limits = {}, sourceScope } = input ?? {}
   if (!subject || !idPattern.test(subject.userId) || !idPattern.test(subject.selfId) || !['private', 'group'].includes(subject.conversationType)) throw new Error('Invalid subject')
   if (subject.conversationType === 'group' && !idPattern.test(subject.groupId)) throw new Error('Invalid group')
   if (typeof command !== 'string' || !command.trim() || command.length > 8000) throw new Error('Invalid command')
   if (!['auto', 'personal', 'group'].includes(scope) || (scope === 'group' && subject.conversationType !== 'group')) throw new Error('Invalid scope')
   if (typeof cwd !== 'string' || cwd.length > 240 || path.isAbsolute(cwd) || cwd.includes('\\') || cwd.split('/').some(p => p === '..') || cwd.includes('\0')) throw new Error('Invalid cwd')
+  if (sourceScope !== undefined) {
+    sourceDirectory(sourceScope)
+    if (sourceScope.selfId !== subject.selfId || sourceScope.conversationType !== subject.conversationType ||
+      sourceScope.targetId !== (subject.conversationType === 'group' ? subject.groupId : subject.userId)) throw new Error('Invalid source scope')
+  }
   const bounded = (name, fallback, min, max) => {
     const value = limits[name] ?? fallback
     if (!Number.isFinite(value) || value < min || value > max) throw new Error('Invalid resource limit')
     return value
   }
-  return { subject, command, cwd, scope: scope === 'auto' ? (subject.conversationType === 'group' ? 'group' : 'personal') : scope,
+  return { subject, command, cwd, sourceScope, scope: scope === 'auto' ? (subject.conversationType === 'group' ? 'group' : 'personal') : scope,
     cpu: bounded('workerCpuCores', 2, 0.5, 8), memory: bounded('workerMemoryMb', 2048, 256, 8192),
     pids: bounded('workerPidsLimit', 256, 32, 1024), maxMb: bounded('workerMaxDownloadMb', 1024, 50, 1024),
     threads: bounded('workerThreadCount', 4, 1, 16), bubbleMb: bounded('workerBubbleVideoMaxMb', 200, 20, 500) }
@@ -35,7 +41,7 @@ async function safeDirectory(root, relative) {
   }
   return current
 }
-export function createWorkerController(options) {
+export function createWorkerController(options, runtime = { exec, spawn }) {
   let active = false
   return http.createServer(async (req, res) => {
     const streaming = req.headers.accept === 'application/x-ndjson'
@@ -56,26 +62,42 @@ export function createWorkerController(options) {
     active = true
     const name = `cherynyxus-qq-task-${randomUUID()}`
     const startedAt = Date.now()
-    let child, cancelled = false
+    let child, cancelled = false, sourceHandle
     const stop = () => {
       if (res.writableEnded) return
       cancelled = true
-      void exec('docker', ['rm', '-f', name]).catch(() => {})
+      void runtime.exec('docker', ['rm', '-f', name]).catch(() => {})
     }
     res.once('close', stop)
     try {
       const relative = task.scope === 'group' ? `groups/${task.subject.groupId}` : task.subject.userId
       const workspace = await safeDirectory(options.fileRoot, relative)
-      await safeDirectory(workspace, task.cwd)
+      // Reserve this mount point even for commands without source authority. No old shared copy is visible.
+      await safeDirectory(workspace, 'incoming-zips')
+      let sourceMount
+      if (task.sourceScope) {
+        for (const shared of [options.fileRoot, options.mediaRoot, options.skillsRoot]) separateSourceRoot(options.sourceRoot, shared)
+        const directory = sourceDirectory(task.sourceScope)
+        sourceHandle = await openSourceDirectory(options.sourceRoot, [directory, 'incoming-zips'])
+        // The host Docker daemon resolves this pinned descriptor, not a replaceable pathname.
+        sourceMount = `/proc/${process.pid}/fd/${sourceHandle.fd}`
+      }
+      if (task.cwd.split('/')[0] === 'incoming-zips') {
+        if (!sourceMount) throw new Error('Source permission required')
+        const cwdHandle = await openSourceDirectory(options.sourceRoot, [sourceDirectory(task.sourceScope), ...task.cwd.split('/')])
+        await cwdHandle.close()
+      } else await safeDirectory(workspace, task.cwd)
       const mediaScope = task.subject.conversationType === 'group' ? `group-${task.subject.groupId}` : `user-${task.subject.userId}`
       const media = await safeDirectory(options.mediaRoot, `scoped/${mediaScope}`)
-      const args = ['run', '--rm', '--name', name, '--label', 'org.cherynyxus.qq-task=true', '--init',
+      const args = ['create', '--name', name, '--label', 'org.cherynyxus.qq-task=true', '--init',
         '--user', `${process.getuid()}:${process.getgid()}`, '--cap-drop=ALL', '--security-opt=no-new-privileges',
         '--read-only', '--cpus', String(task.cpu), '--memory', `${task.memory}m`, '--memory-swap', `${task.memory}m`,
         '--pids-limit', String(task.pids), '--network', options.network || 'bridge',
         '--tmpfs', '/tmp:rw,nosuid,nodev,size=128m,mode=1777',
         '--tmpfs', '/workspace/files/apps:rw,nosuid,nodev,noexec,size=1m,mode=000', '--workdir', `/workspace/files/${task.cwd}`,
         '--mount', `type=bind,src=${workspace},dst=/workspace/files`,
+        ...(sourceMount ? ['--mount', `type=bind,src=${sourceMount},dst=/workspace/files/incoming-zips`]
+          : ['--tmpfs', '/workspace/files/incoming-zips:ro,nosuid,nodev,noexec,size=1m,mode=0555']),
         '--mount', `type=bind,src=${media},dst=/workspace/media`,
         '--mount', `type=bind,src=${options.skillsRoot},dst=/opt/qq-skills,readonly`,
         '--env', 'HTTP_PROXY=', '--env', 'HTTPS_PROXY=', '--env', 'ALL_PROXY=',
@@ -86,7 +108,11 @@ export function createWorkerController(options) {
         '--env', 'QQ_SKILLS_SCRIPTS_DIR=/opt/qq-skills/video-download/scripts',
         '--entrypoint', '/usr/bin/bash', options.image, '-c', task.command]
       if (cancelled) throw new Error('Cancelled')
-      child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+      // A cancellation during create cannot be lost: wait for the created
+      // container, recheck, and only then attach/start it. Its command has not run.
+      await runtime.exec('docker', args)
+      if (cancelled || res.destroyed) throw new Error('Cancelled')
+      child = runtime.spawn('docker', ['start', '--attach', name], { stdio: ['ignore', 'pipe', 'pipe'] })
       let stdout = '', stderr = '', bytes = 0, truncated = false
       const append = (key, chunk) => {
         const remaining = Math.max(0, 131072 - bytes)
@@ -120,7 +146,8 @@ export function createWorkerController(options) {
     } catch { respond(500, { ok: false, error: 'Worker execution failed' }) }
     finally {
       res.removeListener('close', stop)
-      await exec('docker', ['rm', '-f', name]).catch(() => {})
+      await runtime.exec('docker', ['rm', '-f', name]).catch(() => {})
+      await sourceHandle?.close()
       active = false
     }
   })
@@ -129,6 +156,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const socket = process.env.QQ_WORKER_SOCKET
   if (!socket) throw new Error('QQ_WORKER_SOCKET required')
   const options = { fileRoot: process.env.QQ_WORKER_FILES_ROOT, mediaRoot: process.env.QQ_WORKER_MEDIA_ROOT,
+    sourceRoot: process.env.QQ_WORKER_SOURCE_FILES_ROOT,
     skillsRoot: process.env.QQ_WORKER_SKILLS_ROOT, image: process.env.QQ_WORKER_IMAGE, network: process.env.QQ_WORKER_NETWORK }
   for (const key of ['fileRoot', 'mediaRoot', 'skillsRoot', 'image']) if (!options[key]) throw new Error(`Missing ${key}`)
   await fs.mkdir(path.dirname(socket), { recursive: true, mode: 0o700 })

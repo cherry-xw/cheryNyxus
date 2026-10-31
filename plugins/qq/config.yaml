@@ -1,5 +1,5 @@
 id: cherynyxus-qq-module
-version: 0.1.41
+version: 0.1.42
 apiVersion: 2
 entry: index.mjs
 rpcNamespace: qq
@@ -33,6 +33,14 @@ resources:
     kind: script
     path: skills/video-download/scripts/video.mjs
     channel: qq
+  - id: archive-inspect
+    kind: skill
+    path: skills/archive-inspect/SKILL.md
+    channel: qq
+  - id: qq-archive-script
+    kind: script
+    path: skills/archive-inspect/scripts/archive.py
+    channel: qq
 dependencies: []
 capabilities:
   - ingress
@@ -47,4 +55,4 @@ ui:
     title: QQ
     entry: ui/index.html
     apiPrefix: /api/modules/qq/
-    resourceVersion: 0.1.41
+    resourceVersion: 0.1.42

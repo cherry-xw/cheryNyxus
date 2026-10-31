@@ -47,6 +47,8 @@ export async function executeQQWorker(socketPath: string, payload: unknown, sign
     signal?.addEventListener('abort', cancel, { once: true })
     req.on('close', () => signal?.removeEventListener('abort', cancel))
     req.on('error', reject)
-    req.end(JSON.stringify(payload))
+    // The signal may have changed while listeners and the request were created.
+    if (signal?.aborted) cancel()
+    else req.end(JSON.stringify(payload))
   })
 }
