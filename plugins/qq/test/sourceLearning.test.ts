@@ -33,6 +33,25 @@ describe('QQ learning scheduling and recovery',()=>{
     expect(f.internalText).toHaveBeenCalledWith(expect.objectContaining({preset:'named-preset'}))
     expect(f.task.state).toBe('completed');expect(f.task.reason).toBeUndefined()
   })
+  it('regenerates only rejected fragments on explicit retry and retains committed progress',async()=>{
+    const f=fixture();f.task.state='failed';f.task.reason='NOT_ALLOWED'
+    f.task.inputs=['already-committed','needs-regeneration'];f.task.index=1;f.task.results=['committed-result','rejected-result']
+    f.learning.retry(f.task.operationId)
+    expect(f.task.results).toEqual(['committed-result']);expect(f.task.index).toBe(1)
+    await f.work()
+    expect(f.internalText).toHaveBeenCalledTimes(1)
+    expect(f.internalText).toHaveBeenCalledWith(expect.objectContaining({content:'needs-regeneration'}))
+    expect(f.commit).toHaveBeenCalledTimes(1);expect(f.commit.mock.calls[0]![0]).toMatchObject({index:1,raw:'[]'})
+    expect(f.task.state).toBe('completed');expect(f.state.calls).toHaveLength(1)
+  })
+  it('retains the local receipt when explicitly retrying a rejected public result',async()=>{
+    const f=fixture();f.task.state='failed';f.task.phase='public';f.task.reason='NOT_ALLOWED';f.task.localReceipt='local-saved';f.task.inputs=['public-evidence'];f.task.results=['rejected-result']
+    f.prepared.evidence=[{publicEligible:true,text:'公开词义',contentHash:'hash'} as any]
+    f.learning.retry(f.task.operationId);await f.work()
+    expect(f.internalText).toHaveBeenCalledTimes(1);expect(f.task.localReceipt).toBe('local-saved')
+    expect(f.commit.mock.calls[0]![0]).toMatchObject({phase:'public',index:0,raw:'[]'})
+    expect(f.task.state).toBe('completed')
+  })
   it('follows a preset rename without selecting a different preset that reused the old name',async()=>{
     const f=fixture();f.task.preset='old-name'
     f.listPresets.mockReturnValue([{name:'old-name',presetId:'different-preset'},{name:'renamed-preset',presetId:'preset'}])
@@ -132,5 +151,8 @@ describe('QQ learning scheduling and recovery',()=>{
     expect(content.limits).toMatchObject({triggerRatio:0.9,targetRatio:0.4,maxEntries:f.config.memoryMaxEntries,maxChars:f.config.memoryMaxChars})
     expect(f.state.calls).toHaveLength(f.internalText.mock.calls.length)
     expect(input.sourceMaintenance.kind).toBe('learning')
+    expect(input.instruction).toContain('origin=member')
+    expect(input.instruction).toContain('不得作为成员消息证据引用')
+    expect(input.instruction).toContain('sender.id')
   })
 })
