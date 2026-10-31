@@ -173,7 +173,10 @@ export async function prepareRequest(ctx: MiddlewareContext, input: UserInputEnt
   ctx.requestToolPhase = prepared?.toolPhase
   for (const name of prepared?.tools ?? []) {
     const sense = getSense(name), origin = getSenseOrigin(name)
-    if (!sense || !origin || origin.pluginId !== identity.ownerId || origin.available?.() === false || managedToolDenied(name, identity)) continue
+    if (!sense || !origin || origin.pluginId !== identity.ownerId || origin.available?.() === false || managedToolDenied(name, identity) ||
+      prepared?.excludedTools?.includes(name) || runtime.senseTable.has(name)) continue
+    // Entry mechanics may be declared here; business capabilities must come from the tool group.
+    if (name !== 'qq_participation_decide') continue
     if (!runtime.builtSenses.some(s => s.function.name === name)) runtime.builtSenses.push(sense.definition)
     runtime.senseTable.set(name, { supervisionLevel: sense.supervisionLevel ?? 0,
       schema: sense.executor.schema, execute: (args, shared, context) => sense.executor.execute(args, shared, context) })

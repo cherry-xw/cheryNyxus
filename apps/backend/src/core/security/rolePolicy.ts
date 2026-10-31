@@ -205,6 +205,7 @@ export function authorizeToolCall(input: {
   /** 角色验收专用的冻结覆盖层；存在时路径基准强制取其临时工作区。 */
   acceptance?: AcceptanceExecutionPolicy
   requestIdentity?: Readonly<IngressRequestIdentity>
+  operation?: { key: string; allowed: boolean }
 }): ToolAuthorization {
   const { security, name, args } = input
   if (managedToolDenied(name, input.requestIdentity)) {
@@ -245,6 +246,10 @@ export function authorizeToolCall(input: {
   }
 
   decision = addEffect(decision, matchingEffect(policy.tools, name))
+  if (input.operation) {
+    if (!input.operation.allowed) decision = 'deny'
+    decision = addEffect(decision, matchingEffect(policy.tools, input.operation.key))
+  }
   if (name.startsWith('mcp__')) {
     decision = addEffect(decision, matchingEffect(policy.mcp?.tools, name))
     decision = addEffect(decision, policy.mcp?.default ?? 'inherit')
@@ -422,6 +427,7 @@ export function authorizeToolCall(input: {
     name,
     args,
     workspace,
+    operation: input.operation,
     findings,
     commandAssessmentHash: commandAssessment?.assessmentHash,
     acceptance: input.acceptance,

@@ -217,4 +217,12 @@ export interface Sense<T extends z.ZodType> {
   supervisionLevel: SupervisionLevel | undefined
   /** 工具能力声明：接收/产出类型、是否前置执行、每批容量（缺省 undefined = 无声明） */
   capabilities?: SenseCapabilities
+  /** Non-callable configuration keys. Only strictly parsed arguments select an operation. */
+  operationPolicy?: {
+    keys: string[]
+    key(args: Record<string, unknown>): string
+    definition(allowed: readonly string[]): SenseFunction
+  }
+  /** Request-local operation selection, never written back to the registry. */
+  selectedOperations?: Record<string, SupervisionLevel>
 }

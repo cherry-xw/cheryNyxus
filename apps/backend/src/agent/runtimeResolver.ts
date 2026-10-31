@@ -354,6 +354,7 @@ export class RuntimeResolver {
     unavailableTools?: import('@/service/ingress/api.js').IngressUnavailableTool[]
   } {
     const resolved = new Map<string, Sense<ZodType>>()
+    const operationSelections = new Map<string, Record<string, SupervisionLevel>>()
     const fileSenses = new Map(buildFileServiceSenses(config).map(item => [item.definition.function.name, item as Sense<ZodType>]))
 
     if (!senseGroup) return { builtSenses: [], senseTable: new Map() }
@@ -371,8 +372,10 @@ export class RuntimeResolver {
         )
       )
         continue
-      let original = fileSenses.get(senseName) ?? getSense(senseName)
-      if (!original || getSenseOrigin(senseName)?.available?.() === false) continue
+      const base = senseName.includes('.') ? senseName.slice(0, senseName.indexOf('.')) : senseName
+      let original = fileSenses.get(senseName) ?? getSense(senseName) ?? getSense(base)
+      if (!original || getSenseOrigin(original.definition.function.name)?.available?.() === false ||
+        senseName !== original.definition.function.name && !original.operationPolicy?.keys.includes(senseName)) continue
 
       // spawn_role：「可见即可选」——按当前 chat roster 裁剪工具定义（preset 编制 + self-spawn 排除）。
       // 工具 type 枚举只暴露本 chat 可派发角色，LLM 不再选到别处角色（原有执行期 roster gate 保留为纵深防御）。
@@ -383,7 +386,15 @@ export class RuntimeResolver {
       const name = original.definition.function.name
       // shallow copy 隔离：supervisionLevel 写入不得污染全局 senseRegistry（多 chat 共享）
       const s: Sense<ZodType> = { ...original }
-      s.supervisionLevel = supervisionLevel ?? s.supervisionLevel ?? config.global.supervision
+      s.supervisionLevel = Math.max(supervisionLevel ?? config.global.supervision, s.supervisionLevel ?? 0) as SupervisionLevel
+      if (original.operationPolicy) {
+        const selection = operationSelections.get(name) ?? {}
+        const keys = senseName === name ? original.operationPolicy.keys : [senseName]
+        for (const key of keys) selection[key] = Math.max(selection[key] ?? 0, s.supervisionLevel) as SupervisionLevel
+        operationSelections.set(name, selection)
+        s.selectedOperations = selection
+        s.definition = original.operationPolicy.definition(Object.keys(selection))
+      }
       resolved.set(name, s)
     }
 
@@ -416,7 +427,7 @@ export class RuntimeResolver {
       senseTable: this.buildSenseTable(senses, config),
       unavailableTools: group.flatMap((entry) => {
         const { senseName: name } = this.parseSenseGroupEntry(entry)
-        if (resolved.has(name)) return []
+        if (resolved.has(name) || [...operationSelections.values()].some(keys => Object.hasOwn(keys, name))) return []
         const origin = getSenseOrigin(name)
         return [
           {
@@ -468,6 +479,11 @@ export class RuntimeResolver {
       const registeredExecutor = getSense(name)?.executor
       const generatedFileTool = Object.entries(config.file_services ?? {}).some(([id, service]) => service.enabled !== false && service.operations.some(operation => buildFileServiceToolName(id, operation) === name))
       senseTable.set(name, {
+        operation: s.operationPolicy ? args => {
+          const parsed = s.executor.schema.safeParse(args)
+          const key = parsed.success ? s.operationPolicy!.key(parsed.data as Record<string, unknown>) : ''
+          return { key, allowed: !!s.selectedOperations && Object.hasOwn(s.selectedOperations, key), level: s.selectedOperations?.[key] ?? s.supervisionLevel ?? config.global.supervision }
+        } : undefined,
         supervisionLevel: s.supervisionLevel ?? config.global.supervision,
         execute: (args, sharedData, ctx) => {
           assertManagedToolAllowed(name, ctx?.requestView?.identity)

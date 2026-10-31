@@ -94,6 +94,7 @@ export interface SoulGroup {
  * 替代 SenseManager.get(name).supervisionLevel 与 execute(name, args)
  */
 export interface SenseEntry {
+  operation?(args: Record<string, unknown>): { key: string; allowed: boolean; level: SupervisionLevel }
   /** 监管等级（优先级链已前置计算：感官定义 > sense_group > global） */
   supervisionLevel: SupervisionLevel
   /** 执行器（args 已擦除 zod 类型，由 builder 摊平时注入；ctx 为运行时上下文，P2-11） */

@@ -110,7 +110,8 @@ export function registerSenseHandlers(router: import('../message/router.js').Rpc
 
 function toolMetadata() {
   const builtin = new Map(BUILTIN_SENSE_TOOLS.map((item) => [item.name, item]))
-  return listRegisteredSenses().map(({ name, sense, origin }) => ({
+  return listRegisteredSenses().flatMap(({ name, sense, origin }) => {
+    const item = {
     name,
     label: origin?.metadata?.label ?? builtin.get(name)?.label ?? name,
     description:
@@ -127,5 +128,7 @@ function toolMetadata() {
     source: origin?.source ?? ('builtin' as const),
     pluginId: origin?.pluginId,
     pluginVersion: origin?.pluginVersion,
-  }))
+    }
+    return [item, ...(sense.operationPolicy?.keys ?? []).map(key => ({ ...item, name: key, label: `${item.label} / ${key.slice(name.length + 1)}`, description: `仅此操作；不是独立工具。${item.description}` }))]
+  })
 }

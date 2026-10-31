@@ -484,8 +484,9 @@ function buildSenseTrigger(
 ): { trigger: SenseTriggerChunk; call: PendingSenseCall } {
   if (!ctx.runtime) throw new Error('Runtime not configured.')
   const senseEntry = ctx.runtime.senseTable.get(name)
-  const configuredLevel = senseEntry?.supervisionLevel ?? SupervisionLevel.smart
   const args = safeJsonParse(argsJson, {})
+  const operation = senseEntry?.operation?.(args)
+  const configuredLevel = operation?.level ?? senseEntry?.supervisionLevel ?? SupervisionLevel.smart
 
   // 运行时 schema 校验：审批创建前拦截缺参/非法参数调用（纵深防御）。
   // 背景：zod schema 转 JSON Schema 可能丢失 required（如 z.discriminatedUnion 顶层 required 缺失，
@@ -548,6 +549,7 @@ function buildSenseTrigger(
     name,
     args,
     workspace,
+    operation,
     configuredLevel,
     legacySafe,
     // 配置管理核心角色读放行：read_file/search_codebase 绕过 filesystem workspace 校验
@@ -716,14 +718,17 @@ async function* doExecuteSense(
     // 不能拿旧授权执行新动作。
     const liveRole = config.roles?.[authorization.roleType]
     const liveSecurity = compileRoleSecurity(authorization.roleType, liveRole)
+    const operation = senseEntry.operation?.(args)
+    const configuredLevel = operation?.level ?? senseEntry.supervisionLevel
     const currentAuthorization = authorizeToolCall({
       security: liveSecurity,
       name,
       args,
       workspace: ctx.runtime.acceptance?.workspaceRoot ?? getChatWorkspace(ctx.soul.chatId),
-      configuredLevel: senseEntry.supervisionLevel,
+      configuredLevel,
+      operation,
       legacySafe:
-        senseEntry.supervisionLevel === SupervisionLevel.smart
+        configuredLevel === SupervisionLevel.smart
           ? isSafeSenseCall(ctx.runtime.sensitivityRules, name, args)
           : undefined,
       // 与 buildSenseTrigger 同源（isConfigManager(ctx.runtime.senseTable)）→ override 一致 → hash 恒等
