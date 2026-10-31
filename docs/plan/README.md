@@ -4,14 +4,12 @@
 
 | 任务                                                                           | 状态       | 范围                                                           |
 | ------------------------------------------------------------------------------ | ---------- | -------------------------------------------------------------- |
-| [受管小应用回复与实时缓存维护](managed-app-maintenance/README.md) | 规划中 | 独立接手续期日期回复和实时响应缓存两项已知问题；仅调查与方案设计，未授权修正或部署 |
 | [ADV 客户端](adv-client/README.md) | 执行中 | 输入、显示、存储与联网底座部分实现；音频、业务通信及实机验收未完成，本次不提交固件改动 |
 | [万象台](wanxiangtai/README.md)                                                | 规划中     | 多 Agent 团队协作、独立工作区、交付集成与桌面呈现              |
-| [上下文统计、待办进度与连续消息交互](conversation-observability-and-input/README.md) | 规划中 | 上下文统计、待办进度与连续消息交互的设计初稿；另含已确认的上下文预算与 QQ 讨论总结专题及其实施状态。 |
+| [上下文统计、待办进度与连续消息交互](conversation-observability-and-input/README.md) | 规划中 | 工作台三模式统计、待办进度与连续消息采用策略初稿待讨论确认；QQ 来源与上下文专题已收口归档 |
 | [文件权限与交付验收](file-access-and-delivery/README.md) | 待综合验证 | 跨账号与登录权限、QQ 文件/普通回复、工作区导入导出及交付恢复 |
 | [图片服务与会话绘图验收](image-services-and-drawing/README.md) | 执行中 | Imagen 可用接入、各厂商真实验证、多轮选图/定稿及首次查询 400 |
 | [服务端工具完整流程](server-tools-completion/README.md) | 执行中 | 真实任务验证管理、完整有序事件、受保护续接及 GLM/GPT 产品多轮 |
-| [外部设置默认核实](external-setting-defaults/README.md) | 规划中 | Gemini 比例/尺寸、Seedream seed、Images multipart moderation、MCP stdio env |
 
 ## 使用规则
 
@@ -27,6 +25,8 @@
 
 ## 结束，已归档
 
+- QQ群任务反馈：**结束，已归档**。正式说明见[QQ模块](../../plugins/qq/README.md#长任务与周期反馈)与[QQ协议](../shared/protocol/qqbot-plugin.md#持续运行与周期反馈)。
+
 - 需求设计与实施协作流程：**结束，已归档**。正式规范见[需求设计规范](../standards/documentation/requirements-design.md)与[项目协作规范](../standards/global/ai-collaboration.md)，分发入口见[文档工具](../standards/documentation/tools/README.md)。实际跨模型效果与成本不属于本次文档交付的验证范围。
 
 - 当前视频下载相关：**结束，已归档**。正式说明见[QQ模块](../../plugins/qq/README.md#媒体下载与清理)。
@@ -37,5 +37,8 @@
 - QQ 错误说明与受控问答续接：**结束，已归档**。正式说明见[错误规范](../shared/protocol/errors.md#qq-安全错误事实)与[QQ 模块](../../plugins/qq/README.md#受权限约束的问题与暂停)；外围边界归入[后续审核清单](../quality/verification/qq-safe-outcomes.md)。
 - Manager 平台化与 Backend 启动监控（第一阶段）：**结束，已归档**。正式说明见[Manager 管理架构](../shared/architecture/manager-management.md)、[Manager 插件](../shared/architecture/manager-plugins.md)与[后端运行](../guides/backend-runtime.md)；待人工界面审核项归入[后续审核清单](../quality/verification/qq-safe-outcomes.md)。
 - Agent 命令监控与 Backend 停止（第二阶段）：**结束，已归档**。正式说明见[Manager 管理架构](../shared/architecture/manager-management.md)、[后端服务](../backend/service/README.md)、[Drain 日志摘要](../backend/utils/drain.md)与[QQ 协议](../shared/protocol/qqbot-plugin.md#服务停止与空队列恢复)；待生产部署与人工界面审核项归入[后续审核清单](../quality/verification/qq-safe-outcomes.md)。
+- 外部设置默认核实：**结束，已归档**。正式说明见[设置中心](../frontend/settings.md#默认显示与明确编辑)与[文件能力验证](../quality/verification/file-capabilities.md#独立跟进入口)；四项官方未明确省略结果的外部默认保持“未设置 · 默认未核实”及原值保护。
+- 受管小应用回复与实时缓存维护：**结束，已归档**。正式说明见[受管小应用](../backend/service/managed-apps.md)、[维护指南](../guides/managed-apps.md)与[验证说明](../quality/verification/managed-apps.md)；续期可读时间 `leaseExpiresAtText` 与模板 SSE `no-store` 已完成源码修正与离线验证，既有线上应用不自动覆盖。
+- QQ 聊天理解、工具与配置（含 QQ 来源与上下文专题）：**结束，已归档**。正式说明见[QQ 模块](../../plugins/qq/README.md)、[宿主插件架构](../shared/architecture/ingress-plugins.md#宿主认可的请求身份)、[数据库持久化模块](../backend/db/README.md#职责)与[网页搜索与读取](../backend/agent/web-search.md#webfetch-安全边界)；C25—C27 已合入发布副本并增量更新至 `cherynyxus-qq-module@0.1.62`（注册表修订 `69`、配置修订 `20`），日常体验跟进、未知上传回执、旧资料清理（M08）及延期项归入[后续审核清单](../quality/verification/qq-safe-outcomes.md#5-qq-聊天理解工具学习与来源上下文日常跟进及维护清单)。
 
 上述任务按用户确认结束，临时计划与验收材料已删除；有效说明归正式模块，结束状态不代表所有已记录限制均已修复。
