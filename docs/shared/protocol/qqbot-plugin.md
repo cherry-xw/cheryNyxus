@@ -114,6 +114,8 @@ QQ 配置使用 voiceMode=off/requested/auto 和 voiceDefaultCharacter，默认�
 
 ### 服务停止与空队列恢复
 
+新 QQ 来源请求与旧任务继续分开处理。宿主已验证的新来源请求仅在当前命令与快照一致、采用请求内工具历史且不自动重试、Agent 和 Core 活动运行空闲、内存与持久输入队列均为空时，才可随新输入入队事务解除该会话的停机继续标记。入队失败回滚，旧输入非空则拒绝，不调用旧运行继续入口。普通 Web、非 QQ 输入及问答续接不获得这一许可；保存历史、未知外部操作及发送事实不因此改写。相关入口为 `handleChatInputSubmit` 与 `ingressExecution`。
+
 `qq.service.state` 为受认证 QQ 连接的独立控制通知，不占业务发送序号。`data` 包含 `selfId`、`backendInstanceId`、`operationId`（运行时可为 null）、单实例递增 `version`、`phase:running|draining|closing`、当前有权接收关闭提示的 `targets[{conversationType,targetId}]` 和等待期间可继续回答的 `questions[{conversationType,targetId,senderId,messageIds}]`。目标仍由当前允许名单与有效预设产生，不接受 NapCat 自报名单。`qq.request.recover` 的响应同时返回 `service` 快照，消费者先应用它，再处理恢复事件；只有完成认证、身份绑定和本次恢复请求的连接能接受新实例。当前连接的通知不能切换实例，旧版本或迟到通知忽略。
 
 等待期间只允许明确引用已送达问题、且属于原目标原发起者的答案继续进入 Backend；新输入不保存、不补发，并向授权目标回复固定文字“服务已关闭”。进入 `closing` 后停止业务输出和已排队原生发送，尽力取消尚未发出的调用；已交给 QQ 的原生操作不能保证撤回。Backend 与 NapCat 将未执行输入和待投递队列结束，不把未知发送改为成功，不删除配置、身份凭据、记忆或已完成历史。Backend 新进程使用空业务队列，不自动执行旧 QQ 任务或补发旧输出；普通断线重连仍可处理同进程当前任务。

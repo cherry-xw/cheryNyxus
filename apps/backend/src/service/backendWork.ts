@@ -72,7 +72,7 @@ export function permitBackendChildInput(childChatId: string, parentChatId: strin
   }
 }
 
-/** Only explicit Resume may release a restart gate; background callbacks may not. */
+/** Explicit Resume or transactionally admitted new QQ input; never a background wake. */
 export function releaseBackendResume(chatId: string): void {
   assertBackendContinuation(chatId)
   boundary?.resume.resume(chatId)

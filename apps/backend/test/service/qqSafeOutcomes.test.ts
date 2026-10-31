@@ -14,7 +14,10 @@ import config from '@/utils/config.js'
 import { getMessages } from '@/db/message.js'
 import { getInteraction } from '@/db/interaction.js'
 import { closeAllDbs, getSoulDb } from '@/db/index.js'
-import { addSenseBrain } from '../agent/helpers/mockScripts.js'
+import { addSenseBrain, addContentBrain } from '../agent/helpers/mockScripts.js'
+import { BackendResumeRepository } from '@/db/backendResume.js'
+import { BackendStopCoordinator } from '@/service/backendStopCoordinator.js'
+import { configureBackendWork } from '@/service/backendWork.js'
 import { resetMockProviderState } from '@/agent/provider/mock.js'
 import * as chatSend from '@/service/chat/send.js'
 import { BackendWire } from '../../../../platform/napcat-plugin/src/wire.js'
@@ -29,6 +32,7 @@ let host: IngressHost | undefined, server: WebSocketServer | undefined, wire: Ba
 const token = 'isolated-safe-outcome-token'
 const databaseDirectory = config.global.db_dir
 afterEach(async () => {
+  configureBackendWork(undefined)
   vi.restoreAllMocks()
   wire?.close()
   await host?.stop()
@@ -67,7 +71,7 @@ async function setup() {
   await call('qq.identity.bind',{selfId:'123',sourceType:'napcat-action',validation:'accepted',verifiedAt:Date.now(),sourceVersion:'napcat'})
   await call('qq.request.recover',{selfId:'123'})
   const state=()=>JSON.parse(fs.readFileSync(store.safe('data/cherynyxus-qq-module/state.json'),'utf8'))
-  return {store,core,call,state,executionErrors}
+  return {store,core,call,state,executionErrors,rawSubmit:submit}
 }
 const event = (id:string, extra:object={}) => {
   const input = {eventId:`qq:123:group:456:${id}`,selfId:'123',conversationType:'group',targetId:'456',senderId:'789',senderName:'fixture',messageId:id,occurredAt:Math.floor(Date.now()/1000),mentionedBot:true,content:'offline request',attachments:[],...extra}
@@ -123,6 +127,34 @@ it('local provider HTTP422 reaches installed QQ safe failure outbox without unkn
     expect(state.jobs[0].outcome).toBe('failed')
   } finally {await new Promise<void>(r=>http.close(()=>r()))}
 },20000)
+
+it('installed QQ starts a new trusted source request behind an empty restart gate without explicit resume', async () => {
+  config.roles.reviewer!.brain = addContentBrain('qq-restart-new-input', 'new request completed')
+  const s = await setup(), submit = s.rawSubmit
+  const resume = new BackendResumeRepository(getSoulDb())
+  const coordinator = new BackendStopCoordinator({ backendInstanceId: randomUUID(), parkInputs: () => 0,
+    restoreInputs() {}, blockers: () => [], close() {}, force() {} })
+  configureBackendWork({ coordinator, resume, canContinue: () => false })
+  let chatId = ''
+  vi.spyOn(s.core, 'submit').mockImplementation(async (owner, key, input) => {
+    chatId = (await s.core.ensureConversation(owner, key, 'detail-test')).chatId
+    resume.recover([chatId])
+    return submit(owner, key, input)
+  })
+  const oldResume = vi.spyOn(chatSend, 'launchDetachedResume')
+  await s.call('qq.event.submit', event('301'))
+  await vi.waitFor(() => {
+    expect(s.executionErrors).toEqual([])
+    expect(s.state().jobs[0]?.coreRunId).toBeTruthy()
+    expect(s.state().outbox.some((out: any) => out.frame.type === 'qq.reply.part')).toBe(true)
+  }, { timeout: 10000 })
+  expect(resume.required(chatId)).toBe(false)
+  expect(oldResume).not.toHaveBeenCalled()
+  expect(s.state().jobs[0].entryFailure).toBeUndefined()
+  expect(getMessages(chatId).filter(message => message.role === 'user')).toHaveLength(1)
+  expect(getSoulDb().prepare('SELECT request_id FROM source_runs WHERE run_id=?').all(s.state().jobs[0].coreRunId)).toEqual([{ request_id: s.state().jobs[0].requestId }])
+}, 20000)
+
 
 it.each([0,1,2])('real ask tool and original run question continuation; resume fault mode=%s',async lost=>{
   resetMockProviderState()

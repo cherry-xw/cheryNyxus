@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto'
 import { getSoulDb } from '@/db/index.js'
 import { ingressExecution } from '../ingress/request.js'
-import { assertNewBackendWork, backendResumeRequired } from '../backendWork.js'
+import { assertNewBackendWork, backendResumeRequired, releaseBackendResume } from '../backendWork.js'
+import { isNewQQSourceInput } from '../ingress/sourceExecution.js'
 
 import type { HandlerContext } from '../message/router.js'
 import {
@@ -20,7 +21,7 @@ import {
 } from '../message/types.js'
 import { InternalCommand } from '../message/internalCommand.js'
 import { getRootChatId, getTimelineRevision, updateChatMetadata } from '@/db/chat.js'
-import { addPendingInput, findPendingInput, cancelQueuedPendingInput } from '@/db/pendingInput.js'
+import { addPendingInput, findPendingInput, cancelQueuedPendingInput, listPendingInputs } from '@/db/pendingInput.js'
 import {
   abandonRequest,
   appendChatEvent,
@@ -89,10 +90,16 @@ export async function handleChatInputSubmit(
     const agent = await ensureChat(data.chatId)
     assertNewBackendWork()
     assertRestartAdmission()
-    const running = agent.isRunning() || backendResumeRequired(data.chatId)
-    if (ingressExecution.getStore()?.execution?.toolHistory === 'request' && running)
-      throw new Error('Request-local inputs must wait for the previous run')
     const pending = getPendingChatInputs(data.chatId)
+    const requestLocal = execution?.execution?.toolHistory === 'request'
+    const active = agent.isRunning() || !!getActiveChatRunId(data.chatId)
+    if (requestLocal && (active || pending.length || listPendingInputs(data.chatId).length))
+      throw Object.assign(new Error('Request-local inputs must wait for the previous run'), { code: 'PREVIOUS_WORK_PENDING' })
+    const releaseForNewInput = backendResumeRequired(data.chatId) &&
+      isNewQQSourceInput(execution, data.chatId, assertChatExists(data.chatId).active_epoch_id, data.commandId)
+    const running = active || backendResumeRequired(data.chatId) && !releaseForNewInput
+    if (requestLocal && running)
+      throw Object.assign(new Error('Request-local inputs must wait for the previous run'), { code: 'BACKEND_RESUME_REQUIRED' })
     if (pending.length >= 16) throw new UserInputQueueFullError()
 
     const inputId = randomUUID()
@@ -101,6 +108,16 @@ export async function handleChatInputSubmit(
     const acceptedAt = Date.now()
     const prompt = resolvedContent
     const response = getSoulDb().transaction(() => {
+    if (releaseForNewInput) {
+      assertNewBackendWork()
+      assertRestartAdmission()
+      if (!isNewQQSourceInput(execution, data.chatId, assertChatExists(data.chatId).active_epoch_id, data.commandId) ||
+        agent.isRunning() || getActiveChatRunId(data.chatId) || getPendingChatInputs(data.chatId).length || listPendingInputs(data.chatId).length)
+        throw Object.assign(new Error('Previous work is still pending'), { code: 'PREVIOUS_WORK_PENDING' })
+      // Same database transaction as the new input and command acknowledgement.
+      // Never invoke Resume: it may replay an old pending tool.
+      releaseBackendResume(data.chatId)
+    }
     updateChatMetadata(data.chatId, {
       lastUserActivityAt: acceptedAt,
     })

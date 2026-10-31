@@ -2,6 +2,7 @@ import { SourceInputSchema, type SourceInput } from '@chery/protocol'
 import { SourceContextRepository, sourceContextError, type SourceAuthority } from '@/db/sourceContext.js'
 import { getSoulDb } from '@/db/index.js'
 import type { IngressRequestIdentity } from './api.js'
+import type { ingressExecution } from './request.js'
 
 /** Only an in-process execution handle can authorize a source projection. Saved rows are not handles. */
 export function sourceExecutionAuthority(identity: Readonly<IngressRequestIdentity> | undefined, validate: (() => void) | undefined): SourceAuthority {
@@ -19,4 +20,19 @@ export function validateSourceInput(value: SourceInput, authority: SourceAuthori
     JSON.stringify(snapshot.inputRecords) !== JSON.stringify(input.inputRecords) || input.turnId !== (snapshot.turnId ?? snapshot.requestId) ||
     repo.read(authority, input.scopeId, [input.actorRecord])[0]?.sender.id !== authority.actorId) sourceContextError('IDENTITY_REJECTED')
   return { input, snapshot, repo }
+}
+
+/** New QQ input is not permission to resume a parked tool or question. */
+export function isNewQQSourceInput(execution: ReturnType<typeof ingressExecution.getStore>, chatId: string, epochId: string | null | undefined, commandId: string): boolean {
+  if (execution?.identity.source !== 'plugin' || execution.identity.ownerId !== 'cherynyxus-qq-module' ||
+    execution.identity.entryId !== 'qq' || execution.identity.channel !== 'qq' ||
+    execution.execution?.toolHistory !== 'request' || execution.execution.retry !== 'never' || !execution.sourceInput) return false
+  execution.signal?.throwIfAborted()
+  const authority = sourceExecutionAuthority(execution.identity, execution.validate)
+  const { input, snapshot, repo } = validateSourceInput(execution.sourceInput, authority)
+  const binding = repo.scope(authority, input.scopeId).coreBinding
+  if (input.requestId !== commandId || input.turnId !== commandId || snapshot.turnId !== commandId ||
+    snapshot.parentSnapshotId || snapshot.maintenancePurpose || !epochId ||
+    binding?.chatId !== chatId || binding.epochId !== epochId) sourceContextError('IDENTITY_REJECTED')
+  return true
 }
