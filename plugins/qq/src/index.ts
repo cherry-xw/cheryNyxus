@@ -1068,7 +1068,10 @@ export class QQPlugin implements IngressPlugin {
     if (accepted && resource && (preset || unavailable)) {
       this.summaryOperations.get(target)?.abort()
       if (input.conversationType === 'group' && !videoUrl) {
-        if (!discussion.active) discussion.startedAt = now
+        if (!discussion.active) {
+          discussion.startedAt = now
+          discussion.summaryRetryAt = 0
+        }
         discussion.active = true
         discussion.lastActivity = now
       }

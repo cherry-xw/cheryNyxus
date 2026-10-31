@@ -1,5 +1,5 @@
 import {describe,it,expect,vi} from 'vitest'
-import {QQEventSubmitRequestSchema} from '../../../packages/protocol/src/qq.js'
+import {QQDefaultConfig,QQEventSubmitRequestSchema} from '../../../packages/protocol/src/qq.js'
 import {QQPlugin, discussionInputChunks} from '../src/index.js'
 import {QQGroupMemoryStore} from '../src/groupMemory.js'
 import {summarySourceData} from '../src/sourceMaintenance.js'
@@ -34,7 +34,80 @@ function sourceApi(overrides: Record<string, any> = {}) {
  }
 }
 describe('discussion maintenance does not block foreground',()=>{
- it('chunks escaped Chinese and surrogate input losslessly within budget',()=>{
+  function failedDiscussion() {
+   const {p}=fixture();p.state.jobs=[];p.state.identityBinding={selfId:'1'};p.state.receipts={};p.state.nextQueueSequence=1
+   p.snapshot={revision:1,config:{...QQDefaultConfig,groups:['2'],users:[],bindings:{'group:2':'preset'},memoryEnabled:false}}
+   const maintenance={operationId:'old-failed',scopeId:'scope-2',qqConfigRevision:1,status:'failed',phase:'memory',startedAt:3,
+    discussionStartedAt:1,discussionClosedAt:2,attempt:1,reason:'SUMMARY_MEMORY_FAILED',memoryReceipts:[],
+    memoryBatch:{expectedRevision:13,delete:[],save:[{content:'旧'.repeat(171)}]}}
+   const discussion={active:false,lastActivity:1,startedAt:1,closedAt:2,sourceScopeId:'scope-2',summaryPending:true,summaryRetryAt:Number.MAX_SAFE_INTEGER,maintenance}
+   p.state.discussions['group:2']=discussion
+   const internalText=vi.fn(async()=> 'new summary'),api=sourceApi()
+   p.context.core={internalText,resolvePreset:()=>({presetId:'p',brain:'b',senseGroup:'s'}),ensureConversation:async()=>{},sourceConversations:api}
+   p.tick=vi.fn()
+   const input=QQEventSubmitRequestSchema.parse({eventId:'qq:1:group:2:11',messageId:'11',selfId:'1',senderId:'3',senderName:'test',targetId:'2',conversationType:'group',mentionedBot:true,content:'新的讨论',sourceParts:[{partId:'p0',type:'text',text:'新的讨论'}],occurredAt:1})
+   const scope=p.state.sourceScopes['group:2'],receipt={record:sourceRef}
+   const tick=()=> (QQPlugin.prototype as any).tick.call(p)
+   return {p,discussion,maintenance,input,scope,receipt,internalText,api,tick}
+  }
+  it.each([Number.MAX_SAFE_INTEGER,Date.now()+3600000])('starts a new discussion without inheriting old summary wait %s',async retryAt=>{
+   const {p,discussion,maintenance,input,scope,receipt,internalText,api,tick}=failedDiscussion()
+   discussion.summaryRetryAt=retryAt
+   const old=structuredClone(maintenance)
+   await p.decideInput(input,receipt,scope)
+   expect(discussion.active).toBe(true);expect(discussion.startedAt).toBeGreaterThan(2);expect(discussion.summaryRetryAt).toBe(0)
+   expect(discussion.maintenance).toBe(maintenance);expect(maintenance).toEqual(old)
+   for(const job of p.state.jobs) job.state='running'
+   p.state.outbox=[]
+   tick();await Promise.all([...p.operations])
+   expect(internalText).not.toHaveBeenCalled();expect(api.prepareSummary).not.toHaveBeenCalled()
+   for(const job of p.state.jobs) job.state='completed'
+   p.state.outbox=[];discussion.lastActivity=Date.now()-p.snapshot.config.continuationTtlMs-1
+   tick();await Promise.all([...p.operations])
+   expect(discussion.active).toBe(false);expect(discussion.summaryPending).toBe(false)
+   expect(discussion.maintenance.operationId).not.toBe('old-failed');expect(discussion.maintenance.status).toBe('completed')
+   expect(api.prepareSummary).toHaveBeenCalledTimes(1);expect(api.prepareSummary.mock.calls[0][0].operationId).toBe(discussion.maintenance.operationId)
+   expect(api.commitSummary).toHaveBeenCalledTimes(1);expect(internalText).toHaveBeenCalledTimes(1)
+   expect(maintenance).toEqual(old)
+  })
+  it.each([Number.MAX_SAFE_INTEGER,Date.now()+3600000])('keeps same-discussion failure wait %s on ticks and continued input',async retryAt=>{
+   const {p,discussion,input,scope,receipt,internalText,api,tick}=failedDiscussion()
+   discussion.summaryRetryAt=retryAt
+   tick();await Promise.all([...p.operations])
+   expect(internalText).not.toHaveBeenCalled();expect(api.prepareSummary).not.toHaveBeenCalled()
+   discussion.active=true;discussion.lastActivity=Date.now()
+   await p.decideInput(input,receipt,scope)
+   expect(discussion.startedAt).toBe(1);expect(discussion.summaryRetryAt).toBe(retryAt)
+   expect(discussion.maintenance.operationId).toBe('old-failed')
+  })
+  it('does not clear a failed summary wait when the same event is replayed',async()=>{
+   const {p,discussion,input,scope,receipt,internalText}=failedDiscussion()
+   await p.decideInput(input,receipt,scope)
+   discussion.active=false;discussion.closedAt=Date.now();discussion.summaryRetryAt=Number.MAX_SAFE_INTEGER
+   const before=structuredClone(discussion),jobs=p.state.jobs.length,outputs=p.state.outbox.length
+   await p.decideInput(input,receipt,scope)
+   expect(discussion).toEqual(before);expect(p.state.jobs).toHaveLength(jobs);expect(p.state.outbox).toHaveLength(outputs)
+   expect(internalText).not.toHaveBeenCalled()
+  })
+  it('does not reset old failure wait for passive input or a rejected target',async()=>{
+   const {p,discussion,input,scope,receipt,internalText}=failedDiscussion(),before=structuredClone(discussion)
+   expect((await p.decideInput({...input,mentionedBot:false},receipt,scope)).accepted).toBe(false)
+   expect(discussion).toEqual(before)
+   await expect(p.decideInput({...input,eventId:'other',targetId:'99'},receipt,scope)).rejects.toThrow('QQ目标未获许可')
+   expect(discussion).toEqual(before);expect(internalText).not.toHaveBeenCalled()
+  })
+  it('saves a native question answer without starting a new discussion or resetting summary wait',async()=>{
+   const {p,discussion,input,scope,receipt,internalText}=failedDiscussion(),before=structuredClone(discussion)
+   const batch={batchId:'question-batch',runId:'question-run',status:'pending',replies:[],items:[{questionId:'question',eventId:'question-event'}]}
+   p.state.jobs.push({requestId:'question-request',coreRunId:'question-run',target:'group:2',state:'paused',reason:'WAITING_FOR_ANSWER',
+    input,sourceScopeId:'scope-2',snapshot:{...p.snapshot,presetId:'p'},questionBatches:[batch]})
+   p.state.outbox.push({status:'sent',messageIds:['55'],frame:{data:{eventId:'question-event'}}})
+   expect((await p.decideInput({...input,replyToMessageId:'55'},receipt,scope)).accepted).toBe(true)
+   expect(discussion).toEqual(before);expect(p.state.jobs).toHaveLength(1);expect(batch.replies).toHaveLength(1)
+   expect(batch.items[0]).toMatchObject({answer:input.content,answerRecord:sourceRef})
+   expect(internalText).not.toHaveBeenCalled()
+  })
+  it('chunks escaped Chinese and surrogate input losslessly within budget',()=>{
   const raw=('中文😀\\\"\u0001').repeat(80000)
   const chunks=discussionInputChunks(raw)
   expect(chunks.length).toBeGreaterThan(1)

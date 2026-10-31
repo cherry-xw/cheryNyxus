@@ -1,9 +1,27 @@
 import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { it, expect } from 'vitest'
+import { it, expect, vi } from 'vitest'
 import { QQGroupMemoryStore } from '../src/groupMemory.js'
 import { textVersion } from '../src/files.js'
+
+it('keeps the 160-character limit and preserves saved facts when a 171-character candidate is rejected', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'qq-facts-limit-'))
+  try {
+    const consolidate = vi.fn(), store = new QQGroupMemoryStore(root, { maxEntries: 80, maxChars: 160, contextChars: 6000 }, consolidate)
+    const subject = { selfId: '123', groupId: '789', conversationType: 'group' as const }
+    const source = { source: { recordId: 'rec-1', revision: 1 }, partIds: ['p0'], messageId: '1', senderId: '456', occurredAt: 100, content: '群约定' }
+    const fact = { id: 'agreement', topic: '约定', kind: 'agreement', content: '😀'.repeat(160), members: ['456'], evidence: 'statement',
+      sources: [{ source: source.source, partIds: source.partIds, messageId: source.messageId, userId: source.senderId, occurredAt: source.occurredAt }], status: 'active' }
+    await store.manage(subject, { expectedRevision: 0, save: [fact] }, [source], undefined, 'saved')
+    const file = path.join(root, 'memory/topics', textVersion('789') + '.json'), before = await readFile(file, 'utf8')
+    await expect(store.manage(subject, { expectedRevision: 1, save: [{ ...fact, content: '旧'.repeat(171) }] }, [source], undefined, 'rejected')).rejects.toThrow('Fact too long')
+    expect(await readFile(file, 'utf8')).toBe(before)
+    expect(await store.operationStatus(subject, 'rejected')).toBeUndefined()
+    expect((await store.search(subject, '')).revision).toBe(1)
+    expect(consolidate).not.toHaveBeenCalled()
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
 
 it('shares sourced group experience across senders, isolates groups and rejects invented sources', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'qq-facts-'))

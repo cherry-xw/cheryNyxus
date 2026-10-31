@@ -1,5 +1,5 @@
 id: cherynyxus-qq-module
-version: 0.1.48
+version: 0.1.49
 apiVersion: 2
 entry: index.mjs
 rpcNamespace: qq
