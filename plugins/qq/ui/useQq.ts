@@ -3,11 +3,22 @@ import { computed, reactive } from 'vue'
 import { managerRequest, ManagerApiError } from '../../../packages/manager-ui/src/api'
 import { QQConfigSchema, QQEntriesSchema, QQEntryDetailSchema, QQResponseSchemas, type QQEntry, type QQEntryDetail } from '../../../packages/protocol/src/qq'
 import { useQqSources } from './useQqSources'
+import { qqSettingIssue, qqSettingErrorId } from './qqSettingsValidation'
 
 export function useQq(request = managerRequest) {
   const state = reactive({ config: null as any, original: '', revision: 0, apply: null as any, ready: false, reading: false, saving: false, uncertain: false, error: '', message: '', catalog: null as any, catalogError: '', status: null as any, statusError: '', queue: null as { entries: QQEntry[] } | null, queueError: '', history: null as { entries: QQEntry[] } | null, historyError: '', queueLoading: false, historyLoading: false, statusLoading: false, recordsRevision: 0, details: {} as Record<string, QQEntryDetail>, detailErrors: {} as Record<string, string>, detailsLoading: {} as Record<string, boolean>, voiceGroup: '', voices: [] as Array<{id: string; name: string}>, voicesLoading: false, voicesError: '', selected: '', summary: '', summaryError: '' })
   const normalized = (value: unknown) => { const result = QQConfigSchema.safeParse(value); return JSON.stringify(result.success ? result.data : value) }
   const dirty = computed(() => state.config !== null && normalized(state.config) !== state.original)
+  const validation=reactive({attempt:0})
+  const fieldIssues=computed(()=>{
+    if(!validation.attempt||!state.config)return []
+    const checked=QQConfigSchema.safeParse(state.config)
+    return checked.success?[]:checked.error.issues.map(qqSettingIssue)
+  })
+  function fieldAttrs(path:string) {
+    const invalid=fieldIssues.value.some(issue=>issue.path===path||issue.path.startsWith(path+'.'))
+    return {'data-qq-field':path,'aria-invalid':invalid||undefined,'aria-describedby':invalid?qqSettingErrorId(path):undefined}
+  }
   let pendingSave: { requestId: string; config: unknown; expectedBaseRevision: number } | undefined
   let configGeneration=0
   const policy = reactive({ value: null as any, loading: false, error: '' })
@@ -96,7 +107,8 @@ export function useQq(request = managerRequest) {
     if (!state.ready || !dirty.value || state.saving || state.reading || state.uncertain) return
     for (const [target, preset] of Object.entries(state.config.bindings)) if (!preset) delete state.config.bindings[target]
     const checked = QQConfigSchema.safeParse(state.config)
-    if (!checked.success) { state.error = checked.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('；'); return }
+    if (!checked.success) { validation.attempt++;state.error = '设置有误，请按字段旁的说明修改；尚未提交保存。'; return }
+    validation.attempt=0
     state.saving = true; state.error = ''; state.message = ''
     const generation=configGeneration
     const submitted = JSON.stringify(checked.data)
@@ -154,5 +166,5 @@ export function useQq(request = managerRequest) {
     finally { if (generation === voiceGeneration) state.voicesLoading = false }
   }
   async function load() { await Promise.allSettled([read(), catalog(), refresh('status')]) }
-  return { state, dirty, targets, read, catalog, refresh, detail, save, add, remove, summary, voices, load, sources,openRecords,dispose, policy, readPolicy }
+  return { state, dirty, targets, read, catalog, refresh, detail, save, add, remove, summary, voices, load, sources,openRecords,dispose, policy, readPolicy, validation, fieldIssues, fieldAttrs }
 }

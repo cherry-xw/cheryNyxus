@@ -12,6 +12,7 @@ const view = ref('settings')
 const knowledgeDirty=ref(false)
 function switchView(next:string){if(next===view.value)return;if(knowledgeDirty.value&&!window.confirm('记忆修改尚未保存或结果未确认，离开前请核对。仍要离开吗？'))return;knowledgeDirty.value=false;view.value=next}
 const views = [['settings', '设置'], ['queue', '队列'], ['history', '历史'], ['knowledge','记忆与学习'], ['diagnostics', '连接与诊断']]
+watch(()=>controller.validation.attempt,attempt=>{if(attempt)view.value='settings'})
 const emit = defineEmits<{ dirty: [value: boolean] }>()
 watch(() => dirty.value || state.saving || state.uncertain || knowledgeDirty.value, value => {
   emit('dirty', value)

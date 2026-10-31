@@ -1,11 +1,28 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import Dropdown from '../../../packages/manager-ui/src/Dropdown.vue'
 import type { useQq } from './useQq'
 import QqConversationSettings from './QqConversationSettings.vue'
 import { capabilityLabel, capabilityResultLabel } from './qqPresentation'
+import QqSettingError from './QqSettingError.vue'
+import type { QQSettingsIssue } from './qqSettingsValidation'
 const props = defineProps<{ controller: ReturnType<typeof useQq> }>()
 const { state, targets, catalog, add, remove, voices, summary } = props.controller
+const {fieldIssues,fieldAttrs}=props.controller
+const root=ref<HTMLElement>()
+async function focusIssue(issue:QQSettingsIssue) {
+  category.value=issue.category
+  const group=/^conversation\.groups\.(\d+)\./.exec(issue.path)
+  if(group)state.selected=`group:${group[1]}`
+  await nextTick()
+  const fields=Array.from(root.value?.querySelectorAll<HTMLElement>('[data-qq-field]')??[])
+  const field=fields.find(field=>field.dataset.qqField===issue.path)??fields.find(field=>issue.path.startsWith(field.dataset.qqField!+'.'))
+  for(let parent=field?.parentElement;parent;parent=parent.parentElement)if(parent instanceof HTMLDetailsElement)parent.open=true
+  const control=field?.matches('input,select,textarea,button')?field:field?.querySelector<HTMLElement>('input,select,textarea,button')
+  const target=control??root.value
+  target?.focus()
+}
+watch(()=>props.controller.validation.attempt,attempt=>{if(attempt&&fieldIssues.value[0])void focusIssue(fieldIssues.value[0])})
 const category = ref('targets')
 const groups = ref(''), users = ref('')
 const categories = [ ['targets', '目标与预设'], ['conversation', '聊天与参与'], ['interaction', 'QQ 互动与语音'], ['messages', '消息处理与附件'], ['memory', '记忆与学习'], ['worker', '技能执行与下载'] ]
@@ -60,12 +77,13 @@ watch(() => state.config?.groups.join(','), () => {
 </script>
 
 <template>
-  <div class="qq-settings">
+  <div ref="root" class="qq-settings" tabindex="-1">
     <nav aria-label="QQ 设置分类" class="qq-categories">
       <button v-for="item in categories" :key="item[0]" type="button" :aria-pressed="category === item[0]" @click="category = item[0]">{{ item[1] }}</button>
     </nav>
     <p v-if="state.reading" role="status">正在读取配置…</p>
     <p v-if="!state.config && !state.reading" class="notice">配置尚不可用，请恢复连接后重新读取。不会将读取失败当作空白名单。</p>
+    <div v-if="fieldIssues.length" role="alert"><p>以下设置尚未提交：</p><ul><li v-for="(issue,index) in fieldIssues" :key="`${issue.path}-${index}`"><button type="button" @click="focusIssue(issue)">{{issue.label}}：{{issue.message}}</button></li></ul></div>
     <template v-if="state.config">
       <fieldset class="qq-setting-fields" :disabled="!state.ready || state.reading || state.saving || state.uncertain">
         <legend>{{ categories.find(item => item[0] === category)?.[1] }}</legend>
@@ -73,10 +91,10 @@ watch(() => state.config?.groups.join(','), () => {
           <div class="section-heading"><h3>允许的目标与预设绑定</h3><button type="button" @click="catalog">刷新预设目录</button></div>
           <p v-if="state.catalogError" class="error" role="alert">预设目录读取失败：{{ state.catalogError }}</p>
           <div class="grid">
-            <label>允许的群号<textarea v-model="groups" rows="2" placeholder="多个号码用空格或逗号分隔" /><button type="button" @click="addTargets('groups')">添加群</button></label>
-            <label>允许私聊的 QQ 号<textarea v-model="users" rows="2" placeholder="多个号码用空格或逗号分隔" /><button type="button" @click="addTargets('users')">添加私聊</button></label>
+             <label>允许的群号<textarea v-model="groups" v-bind="fieldAttrs('groups')" rows="2" placeholder="多个号码用空格或逗号分隔" /><QqSettingError path="groups" :issues="fieldIssues" /><button type="button" @click="addTargets('groups')">添加群</button></label>
+             <label>允许私聊的 QQ 号<textarea v-model="users" v-bind="fieldAttrs('users')" rows="2" placeholder="多个号码用空格或逗号分隔" /><QqSettingError path="users" :issues="fieldIssues" /><button type="button" @click="addTargets('users')">添加私聊</button></label>
             <label>当前目标<Dropdown v-model="state.selected" label="当前目标"><option value="">请选择目标</option><option v-for="target in targets" :key="target" :value="target">{{ target.startsWith('group:') ? '群 ' + target.slice(6) : '私聊 ' + target.slice(13) }}</option></Dropdown></label>
-            <label>已有预设<Dropdown v-if="state.selected" v-model="state.config.bindings[state.selected]" label="已有预设" :disabled="!state.catalog"><option value="">未绑定</option><option v-for="name in state.catalog?.presets || []" :key="name" :value="name">{{ name }}</option></Dropdown><span v-else>先选择目标</span></label>
+             <label data-qq-field="bindings">已有预设<Dropdown v-if="state.selected" v-model="state.config.bindings[state.selected]" label="已有预设" :disabled="!state.catalog"><option value="">未绑定</option><option v-for="name in state.catalog?.presets || []" :key="name" :value="name">{{ name }}</option></Dropdown><span v-else>先选择目标</span><QqSettingError path="bindings" :issues="fieldIssues" /></label>
           </div>
           <p class="muted">空名单不允许任何目标；未绑定预设也不会处理消息。群聊默认 @ 后续聊，也可在聊天设置中启用适度主动参与。</p>
           <button v-if="state.selected" type="button" @click="remove(state.selected)">移除此目标及绑定（保存后生效）</button>
@@ -102,27 +120,27 @@ watch(() => state.config?.groups.join(','), () => {
           <h3>消息处理与等待反馈</h3>
           <h3>QQ 原图存储</h3>
           <div class="grid">
-            <label>单张原图上限（字节）<input v-model.number="state.config.imageStorage.singleBytes" type="number" min="1" max="20971520" /></label>
-            <label>全部目标总额度（字节）<input v-model.number="state.config.imageStorage.totalBytes" type="number" min="1" max="2147483648" /></label>
-            <label>每个目标额度（字节）<input v-model.number="state.config.imageStorage.perTargetBytes" type="number" min="1" max="268435456" /></label>
+             <label>单张原图上限（字节）<input v-model.number="state.config.imageStorage.singleBytes" v-bind="fieldAttrs('imageStorage.singleBytes')" type="number" min="1" max="20971520" /><QqSettingError path="imageStorage.singleBytes" :issues="fieldIssues" /></label>
+             <label>全部目标总额度（字节）<input v-model.number="state.config.imageStorage.totalBytes" v-bind="fieldAttrs('imageStorage.totalBytes')" type="number" min="1" max="2147483648" /><QqSettingError path="imageStorage.totalBytes" :issues="fieldIssues" /></label>
+             <label>每个目标额度（字节）<input v-model.number="state.config.imageStorage.perTargetBytes" v-bind="fieldAttrs('imageStorage.perTargetBytes')" type="number" min="1" max="268435456" /><QqSettingError path="imageStorage.perTargetBytes" :issues="fieldIssues" /></label>
           </div>
           <p class="muted">默认单张 20 MiB、全部 2 GiB、每目标 256 MiB。满额停止新采集，不自动删除；移除关联后停止采集和新读取，保留原件。只采集已允许且预设有效的目标，不补收旧图。模型图片输入大小单独管理。</p>
           <p class="muted">运行中的请求保留原设置。模型、工具组和预设内容在对应设置插件中管理。</p>
         </section>
-        <section v-show="category === 'memory'"><h3>记忆与学习</h3><div class="grid"><label><input v-model="state.config.memoryEnabled" type="checkbox" />启用记忆</label><label><input v-model="state.config.learningEnabled" type="checkbox" />自动学习（不影响讨论摘要）</label><label><input v-model="state.config.publicTermsEnabled" type="checkbox" />读取与保存公共词义</label><label>每机器人每小时自动学习调用上限<input v-model.number="state.config.learning.maxCallsPerHour" type="number" min="1" max="3600" /></label><label>待处理学习任务上限<input v-model.number="state.config.learning.maxPending" type="number" min="1" max="1000" /></label></div><p v-if="!state.config.memoryEnabled">记忆已关闭，学习和公共词义设置保留但当前不生效。</p><p>重试与分块计入学习调用。超限暂停并保留处理位置，不影响聊天或摘要；关闭期间的聊天不补学。</p></section>
+         <section v-show="category === 'memory'"><h3>记忆与学习</h3><div class="grid"><label><input v-model="state.config.memoryEnabled" type="checkbox" />启用记忆</label><label><input v-model="state.config.learningEnabled" type="checkbox" />自动学习（不影响讨论摘要）</label><label><input v-model="state.config.publicTermsEnabled" type="checkbox" />读取与保存公共词义</label><label>每机器人每小时自动学习调用上限<input v-model.number="state.config.learning.maxCallsPerHour" v-bind="fieldAttrs('learning.maxCallsPerHour')" type="number" min="1" max="3600" /><QqSettingError path="learning.maxCallsPerHour" :issues="fieldIssues" /></label><label>待处理学习任务上限<input v-model.number="state.config.learning.maxPending" v-bind="fieldAttrs('learning.maxPending')" type="number" min="1" max="1000" /><QqSettingError path="learning.maxPending" :issues="fieldIssues" /></label></div><p v-if="!state.config.memoryEnabled">记忆已关闭，学习和公共词义设置保留但当前不生效。</p><p>重试与分块计入学习调用。超限暂停并保留处理位置，不影响聊天或摘要；关闭期间的聊天不补学。</p></section>
         <section v-show="category === 'worker'"><h3>技能执行与视频下载</h3><div class="grid"><label><input v-model="state.config.workerEnabled" type="checkbox" />启用通用执行容器</label><label><input v-model="state.config.workerProgressEnabled" type="checkbox" />定时通报下载进度</label></div><p class="muted">资源限制作用于下一条执行命令，不改变正在运行的命令。</p></section>
-        <div v-if="numbers[category]" :key="category" class="grid qq-number-fields">
-          <label v-for="field in numbers[category]" :key="field.key">{{ field.label }}<input v-model.number="state.config[field.key]" type="number" :min="field.min" :max="field.max" :step="field.step || 1" /></label>
-        </div>
+         <details v-if="numbers[category]" :key="category" class="qq-number-fields"><summary>高级数值设置</summary><div class="grid">
+           <label v-for="field in numbers[category]" :key="field.key">{{ field.label }}<input v-model.number="state.config[field.key]" v-bind="fieldAttrs(field.key)" type="number" :min="field.min" :max="field.max" :step="field.step || 1" /><QqSettingError :path="field.key" :issues="fieldIssues" /></label>
+         </div></details>
         <section v-show="category === 'messages'">
           <div class="grid">
             <label>等待文案顺序<Dropdown v-model="state.config.waitMessageMode" label="等待文案顺序"><option value="cycle">循环</option><option value="random">随机</option></Dropdown></label>
-            <label class="wide">等待文案（每行一条）<textarea :value="state.config.waitMessages.join('\n')" rows="4" @input="state.config.waitMessages = ($event.target as HTMLTextAreaElement).value.split('\n')" /></label>
+             <label class="wide">等待文案（每行一条）<textarea :value="state.config.waitMessages.join('\n')" v-bind="fieldAttrs('waitMessages')" rows="4" @input="state.config.waitMessages = ($event.target as HTMLTextAreaElement).value.split('\n')" /><QqSettingError path="waitMessages" :issues="fieldIssues" /></label>
             <label class="wide"><input v-model="state.config.toolIconsEnabled" type="checkbox" />发送实际调用工具图标及同周期已有正文</label>
           </div>
-          <details><summary>工具图标映射</summary><div class="grid"><label v-for="tool in state.catalog?.tools || []" :key="tool.name">{{ tool.label || tool.name }}<input :value="state.config.toolIcons[tool.name] || ''" @input="($event.target as HTMLInputElement).value ? state.config.toolIcons[tool.name] = ($event.target as HTMLInputElement).value : delete state.config.toolIcons[tool.name]" /></label></div></details>
+           <details><summary>工具图标映射</summary><div class="grid"><label v-for="tool in state.catalog?.tools || []" :key="tool.name">{{ tool.label || tool.name }}<input :value="state.config.toolIcons[tool.name] || ''" v-bind="fieldAttrs(`toolIcons.${tool.name}`)" @input="($event.target as HTMLInputElement).value ? state.config.toolIcons[tool.name] = ($event.target as HTMLInputElement).value : delete state.config.toolIcons[tool.name]" /><QqSettingError :path="`toolIcons.${tool.name}`" :issues="fieldIssues" /></label></div></details>
         </section>
-        <div v-show="category === 'memory'" class="grid"><label class="wide">讨论摘要提示词<textarea v-model="state.config.summaryPrompt" rows="6" /></label></div>
+         <div v-show="category === 'memory'" class="grid"><label class="wide">讨论摘要提示词<textarea v-model="state.config.summaryPrompt" v-bind="fieldAttrs('summaryPrompt')" rows="6" /><QqSettingError path="summaryPrompt" :issues="fieldIssues" /></label></div>
       </fieldset>
     </template>
   </div>
