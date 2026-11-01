@@ -277,6 +277,7 @@ export class Adapter {
       service.questions.some(question => question.conversationType === input.conversationType && question.targetId === input.targetId &&
         question.senderId === input.senderId && question.messageIds.includes(String(input.replyToMessageId)))
     if (answer) return false
+    if (input.conversationType === 'group' && !input.mentionedBot) return true
     if (!String(input.content ?? '').trim() && !(input.attachments as unknown[])?.length && !input.mentionedBot) return true
     const id = String(input.eventId)
     if (this.closedNotices.has(id)) return true

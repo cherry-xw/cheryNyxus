@@ -38,7 +38,7 @@ function fixture(path?: string) {
 const input = (extra = {}) => ({ post_type: 'message', self_id: 123, user_id: 789, group_id: 456, message_type: 'group', message_id: -42, time: 10, sender: { user_id: 789, nickname: 'synthetic' }, message: [{ type: 'text', data: { text: 'hello' } }, { type: 'at', data: { qq: '123' } }], ...extra })
 
 describe('native adapter (mock consumers only, no backend business proof)', () => {
-  it('replies closed only to authorized targets after explicit state, not ordinary disconnect', async () => {
+  it('replies closed only to authorized targets after explicit state, requiring @ in groups, not ordinary disconnect', async () => {
     const { adapter, wire, ctx } = fixture()
     await adapter.start(); await settle()
     wire.disconnect?.(); await settle()
@@ -47,10 +47,16 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
     wire.listener?.({ kind: 'notification', type: 'qq.service.state', data: serviceFixture({ phase: 'closing', operationId: 'stop', version: 2 }) })
     await settle()
     const submitted = wire.request.mock.calls.filter(([method]) => method === 'qq.event.submit').length
+    await adapter.receive(input({ message_id: -41, message: [{ type: 'text', data: { text: 'ordinary group message without mention' } }] }))
+    expect((ctx.actions.call as any).mock.calls.filter(([name, params]: any[]) => name === 'send_msg' && params.message?.[0]?.data?.text === '服务已关闭')).toHaveLength(0)
     await adapter.receive(input())
     await adapter.receive(input({ group_id: 999, message_id: -43 }))
+    await adapter.receive(input({ group_id: undefined, message_type: 'private', message_id: -44, message: [{ type: 'text', data: { text: 'hello private' } }] }))
     expect(wire.request.mock.calls.filter(([method]) => method === 'qq.event.submit')).toHaveLength(submitted)
-    expect((ctx.actions.call as any).mock.calls.filter(([name, params]: any[]) => name === 'send_msg' && params.message?.[0]?.data?.text === '服务已关闭')).toHaveLength(1)
+    const closedReplies = (ctx.actions.call as any).mock.calls.filter(([name, params]: any[]) => name === 'send_msg' && params.message?.[0]?.data?.text === '服务已关闭')
+    expect(closedReplies).toHaveLength(2)
+    expect(closedReplies[0][1]).toMatchObject({ message_type: 'group', group_id: '456' })
+    expect(closedReplies[1][1]).toMatchObject({ message_type: 'private', user_id: '789' })
   })
   it('fences queued sends at shutdown and rejects stale or unauthenticated instance changes', async () => {
     const { adapter, wire, ctx } = fixture()
@@ -151,11 +157,13 @@ describe('native adapter (mock consumers only, no backend business proof)', () =
     expect(submitted[0]).toMatchObject({content:'  hello\n',sourceParts:[{type:'text',text:'  hello\n'}]})
     expect(submitted[1]).toMatchObject({content:'',mentionedBot:false,attachments:[{type:'file',name:'note.txt'}]})
   })
-  it('ignores whitespace while closed but still explains closure for a bare mention',async()=>{
+  it('ignores whitespace and unmentioned group messages while closed but still explains closure for a bare mention',async()=>{
     const {adapter,wire,ctx}=fixture();await adapter.start();await settle()
     wire.listener?.({kind:'notification',type:'qq.service.state',data:serviceFixture({phase:'closing',operationId:'stop',version:2})});await settle()
     const before=(ctx.actions.call as any).mock.calls.length
     await adapter.receive(input({message:[{type:'text',data:{text:' \n\t　'}}]}))
+    await adapter.receive(input({message_id:50,message:[{type:'text',data:{text:'group chat without mention'}}]}))
+    await adapter.receive(input({message_id:52,message:[{type:'file',data:{file:'file',name:'note.txt'}}]}))
     expect((ctx.actions.call as any).mock.calls.length).toBe(before)
     await adapter.receive(input({message_id:51,message:[{type:'at',data:{qq:'123'}}]}))
     expect(ctx.actions.call).toHaveBeenCalledWith('send_msg',expect.objectContaining({message:[{type:'text',data:{text:'服务已关闭'}}]}),'test',ctx.pluginManager.config)
