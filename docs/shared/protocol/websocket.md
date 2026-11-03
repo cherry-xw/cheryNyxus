@@ -73,7 +73,7 @@ QQ 专用连接的启动配置确认通知 `qqbot.config.loaded` 只向本机 QQ
 
 正常 ACK 的新增关联：`{"drawing":{"taskId":"task-id","roundId":"round-id"}}`。同 commandId 重发相同请求只返回同一轮；不同参数返回冲突。缺少权限、参考版本不可读、没有合法编辑方式、数量无效或配置版本变化时，在生成前拒绝，保留草稿；不能返回接受后静默换成另一模型。远端结果未知时只查原操作，不自动重新生成。定稿冲突保留已有候选及定稿，用户重新读取后决定是否再次提交。
 
-绘图记录使用已认证的文件 HTTP 入口：`POST /api/file-services/drawings` 接受 `{chatId}`，返回 `{tasks}`；每项含 taskId、chatId、selectionRevision、可选 finalCandidateId 和 rounds。每轮有 roundId、sourceMessageId、feedback、intent、固定 inputAssets、imageCount、imageConfigRevision、可选 operation 与 candidates。候选包含 candidateId、roundId、operationId、partIndex、assetId、assetVersionId。私有厂商续接不返回前端。`POST /api/file-services/drawing-finalize` 接受 `{chatId,taskId,candidateId,expectedSelectionRevision,requestId}`，返回更新后的任务；无权限返回拒绝，并发版本过期返回 HTTP 409。相同 requestId 与同样选择返回原结果；不同选择冲突。前端按需查询恢复与刷新，无须新建生成操作。用户选为修改对象时先使用同一查询取得且后端校验过的候选，再由下一次 input.submit 校验来源身份；选择与预览本身不调用生成。
+绘图记录使用已认证的文件 HTTP 入口：`POST /api/file-services/drawings` 接受 `{chatId}`，返回 `{tasks}`；每项含 taskId、chatId、selectionRevision、可选 finalCandidateId 和 rounds。每轮有 roundId、sourceMessageId、feedback、intent、固定 inputAssets、imageCount、imageConfigRevision、可选 operation 与 candidates。候选包含 candidateId、roundId、operationId、partIndex、assetId、assetVersionId。私有厂商续接不返回前端。`POST /api/file-services/drawing-finalize` 接受 `{chatId,taskId,candidateId,expectedSelectionRevision,requestId}`，返回更新后的任务；无权限（例如跨所有者或插件会话）返回 HTTP 403 `file.permission_denied`，并发版本过期返回 HTTP 409。相同 requestId 与同样选择返回原结果；不同选择冲突。前端按需查询恢复与刷新，无须新建生成操作。用户选为修改对象时先使用同一查询取得且后端校验过的候选，再由下一次 input.submit 校验来源身份；选择与预览本身不调用生成。
 
 工具结果在历史与时间线中保留 `parts` 和 `fileOperations`：`GraphToolCall` 以及单会话 `CanonicalSenseCall` 均携带相应字段。文件卡片读取固定资产版本，不从 `result` 文字中的 URL 推断文件。消费者合并工具调用结果时必须同时保留这些字段，不能只保留文字；保存失败、执行失败与检查结果分别取操作记录，不因文字存在就认定成功。
 

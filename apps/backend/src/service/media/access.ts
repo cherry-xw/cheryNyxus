@@ -17,7 +17,7 @@ export function fileAccessForChat(chatId: string, ownerId?: string): AssetAccess
   const root = getChat(getRootChatId(chatId)) ?? chat
   const metadata = JSON.parse(root.metadata ?? '{}') as Record<string, unknown>
   const stored = typeof metadata.fileOwnerId === 'string' ? metadata.fileOwnerId : undefined
-  if (ownerId && stored && stored !== ownerId) throw new Error('无权访问此会话的文件')
+  if (ownerId && stored && stored !== ownerId) throw Object.assign(new Error('无权访问此会话的文件'), { code: 'EACCES' })
   const owner = ownerId ?? stored
   if (!owner || owner === 'migration:unclaimed') throw new Error('历史文件归属尚未确认，请先认领此会话文件')
   return { ownerId: owner, chatId }

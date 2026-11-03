@@ -268,7 +268,7 @@ describe('会话绘图单次操作与用户选择', () => {
     const drawing = round(); await run(drawing)
     const task = getDrawingTask(drawing.taskId, chatId, ownerId)
     expect((await http('/api/file-services/drawings', { chatId })).status).toBe(200)
-    expect((await http('/api/file-services/drawings', { chatId }, 'foreign-owner')).status).toBe(400)
+    expect((await http('/api/file-services/drawings', { chatId }, 'foreign-owner')).status).toBe(403)
     expect((await http('/api/file-services/image-output', { serviceId, chatId, operation: 'image.generate', desiredCount: 6, params: {} })).status).toBe(200)
     const choice = { chatId, taskId: drawing.taskId, candidateId: task.rounds[0]!.candidates[0]!.candidateId, expectedSelectionRevision: 0, requestId: randomUUID() }
     expect((await http('/api/file-services/drawing-finalize', choice)).status).toBe(200)
