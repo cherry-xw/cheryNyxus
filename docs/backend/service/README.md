@@ -25,6 +25,12 @@ service 层是「外部世界 ↔ agent 内核」的边界。它把 WebSocket �
 
 ## 启动流程
 
+### 会话绘图定位
+
+`fileServices/imageOutput.ts` 的 `resolveImageOutput` 和 `imageCountParams` 共用于会话、普通生成工具和试用；数量默认、目录来源与接口限制见[模型目录](../agent/model-catalog.md#图像服务参数与实现边界)。`fileServices/drawings.ts` 保存绘图任务、轮次、固定候选和用户定稿，`chat/input.ts` 将同一轮与持久输入 ACK 关联。`operations.ts` 在登记远端操作时原子认领每轮唯一执行权；保存重试复用已有结果，不释放该执行权。
+
+私有续接按来源轮独立保存，子会话清理不删除主会话所引用候选；公开记录不返回私有内容。`agent/hooks/request.ts` 传递本轮约束，`agent/sense/spawn.ts` 将同一轮交给至多一名执行角色。字段、HTTP 查询和错误约定只维护在[会话绘图契约](../../shared/protocol/websocket.md#会话绘图请求与记录)。离线回归入口为 `test/service/drawingWorkflow.test.ts`、`test/utils/imageCount.test.ts`、`test/service/fileServiceAdapters.test.ts` 和 `test/service/fileOperationRecovery.test.ts`；真实服务、运行配置迁移及界面验收不由这些测试证明。
+
 入口 [apps/backend/src/index.ts](../../../apps/backend/src/index.ts) `main()`：
 
 ```

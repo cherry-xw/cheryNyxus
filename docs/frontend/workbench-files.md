@@ -12,7 +12,7 @@
 
 ## 输入与发送
 
-会话绘图由 `composer/useDrawingDraft.ts` 管理每个窗口、后端身份与会话的参数，树、对话、精简和快速发送共用。`DrawingPanel` 提供服务、执行角色、操作与本次参数；显示实际图片型号，草稿不改变聊天大脑。选择候选只把固定版本放入草稿；发送反馈才产生新轮。`DrawingTaskList` 展示轮次、固定参数、候选和用户定稿；历史抽屉的 `DrawingHistory` 查询同一持久记录，归档后仍可查看。用户定稿不是子角色交付，也不会被后续新结果自动替换。协议与失败语义见[会话绘图契约](../shared/protocol/websocket.md#会话绘图请求与记录已批准实施中)。当前代码实施中，真实服务与界面验收未完成。
+会话绘图由 `composer/useDrawingDraft.ts` 管理每个窗口、后端身份与会话的参数，树、对话、精简和快速发送共用。`DrawingPanel` 提供服务、执行角色、操作与本次参数；显示实际图片型号，草稿不改变聊天大脑。选择候选只把固定版本放入草稿；发送反馈才产生新轮。`DrawingTaskList` 展示轮次、固定参数、候选和用户定稿；历史抽屉的 `DrawingHistory` 查询同一持久记录，归档后仍可查看。用户定稿不是子角色交付，也不会被后续新结果自动替换。协议与失败语义见[会话绘图契约](../shared/protocol/websocket.md#会话绘图请求与记录)，真实服务实测与界面验收边界见[文件能力验证](../quality/verification/file-capabilities.md#文件草稿与绘图查询边界)。
 
 节点树使用 `AgentComposer` 和 `useAgentDialogOptions`；对话与精简输入使用共享的 `useInstructionSuggestions` 和 `InstructionSuggestions`。三者共用 `commands.ts` 的 token 格式（`serializeCommandToken` 等），支持候选过滤、键盘选择和文件回填，保留各自草稿和附件功能。输入提示说明 `/` 是指令、`@` 是角色、`&` 是文件引用，以及正文由 Agent 按需读取。`/` 指令候选在三种视图都带 tab 栏（指令/技能/组合技，左右键切换），对话/精简的 tab 分组与 token 与树页面完全一致（2026-09-20 起）。
 

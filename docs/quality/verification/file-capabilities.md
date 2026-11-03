@@ -36,7 +36,7 @@
 用户已批准本轮结束并将剩余事项独立移交。以下任务各自承担准备、处理、验证及结束责任，不能用移交或延期冒充完成：
 
 - [文件权限与交付验收](../../plan/file-access-and-delivery/README.md)：业务账号隔离、登录 HTTP 权限、QQ 文件/普通回复、工作区导入导出和异步交付/清理组合。
-- [图片服务与会话绘图验收](../../plan/image-services-and-drawing/README.md)：Imagen、各厂商实际服务、完整绘图与图片产品验证、首次绘图查询 400。
+- 图片服务与会话绘图验收（已按用户确认收尾归档）：`google-imagen` 破坏性移除、首次绘图查询跨所有者 403 修复、GPT/MiniMax/Gemini 标准后端配置全链路实测与多轮定稿验证、生产容器 Sharp `0.35.5` 核验均已完成（见下节[文件草稿与绘图查询边界](#文件草稿与绘图查询边界)）。`doubao-seedream` 待火山方舟渠道接入后补测；GLM/GPT/MiniMax 服务端工具与完整角色多轮归[服务端工具完整流程](../../plan/server-tools-completion/README.md)；工作台三视图、窄窗/键盘/触屏及成图视觉效果按用户决定接受当前状态。
 - [服务端工具完整流程](../../plan/server-tools-completion/README.md)：真实任务验证管理、完整事件顺序、受保护续接及 GLM/GPT 多轮；其中仍有实现缺口。
 - 四项外部默认未核实字段（Gemini 图像比例/尺寸、Seedream 非 pro/flash `seed`、Images multipart `moderation`、MCP stdio `env`）已按用户确认接受现状结项：不把未核实缺省改成猜测默认，长期保护与展示规则归[设置中心](../../frontend/settings.md#默认显示与明确编辑)。
 
@@ -56,9 +56,15 @@
 
 草稿已完成附件预览、失败查询停止自动重复的固定 Web 发布证据位于 `/home/chery/docker/cherynyxus/releases/file-draft-fix-20261021/`：`verification/web-results.json`、`regression-before.*`、`source-manifest.json`、`image-comparison.json`、`deployment-result.json` 和配置/凭据/入口保护记录。原版本为 `cherynyxus-runtime:file-draft-fix-20261021`，后续已叠加发布，不冒充实时版本；维护命令归该目录 README，原六份 Compose 清单加本目录 `release.yaml` 不能省略。
 
-首次 `POST /api/file-services/drawings` 400 的根因已由[ID05](../../plan/image-services-and-drawing/README.md#小任务台账)查明并修复：生产 `minimax预设` 最新根会话的 `fileOwnerId` 为 `cherynyxus-qq-module`，浏览器以 `manager-internal` 查询时原 `fileAccessForChat` 抛出无 `code` 异常被映射为 400 `file.operation_rejected`；现已附加 `code: 'EACCES'` 并返回 403 `file.permission_denied`。
+首次 `POST /api/file-services/drawings` 400 的根因已查明并修复：生产 `minimax预设` 最新根会话的 `fileOwnerId` 为 `cherynyxus-qq-module`，浏览器以 `manager-internal` 查询时原 `fileAccessForChat` 抛出无 `code` 异常被映射为 400 `file.operation_rejected`；现已附加 `code: 'EACCES'` 并返回 403 `file.permission_denied`。
 
-2026-11-02 基于 `https://ai.xcherry.top` 网关完成了 `openai-images`（`gpt-image-2`）与 `openai-responses-image`（`gpt-5.6-sol` + `image_model: gpt-image-2`，移除上游拒绝的 `max_tool_calls`）的真实生成、部分产出（`desiredCount: 2` 返回 1 张保存为 `partial` 且不自动补图）、选图编辑（`image.edit`）、用户定稿（`selectionRevision=1`）、幂等重试（200）、过期版本冲突（409 `file.state_conflict`）及定稿后第 3 轮继续生成保留原 `finalCandidateId` 的实测；生产容器 `cherynyxus-backend-1` 核实安装 Sharp `0.35.5`（libvips `8.18.7`）。执行脚本与结果见 [docs/plan/image-services-and-drawing/README.md](../../plan/image-services-and-drawing/README.md)。
+2026-11-02 至 2026-11-03 基于 `https://ai.xcherry.top` 网关与 MiniMax 官方入口完成了标准后端 `file_services` 配置（`brainRef: 'minimax'`、无手动 `capabilities` 覆盖）下的 `resolveImageOutput` → `createDrawingRound` → `runFileOperation` → `finalizeDrawing` 全链路实测：
+- **Imagen 破坏性移除**：因 Gemini API Imagen 入口已关闭且 Vertex AI `imagen-4.0-*-001` 于 2026-06-30 退役，按用户确认方案 1A 移除 `google-imagen` 适配器与 `google-imagen-4` 目录项，仅保留 `sampleCount` 旧配置迁移清理键。
+- **OpenAI Images / Responses**：完成 `openai-images`（`gpt-image-2`、`gpt-image-2.5`）与 `openai-responses-image`（`gpt-5.6-sol` + `image_model: gpt-image-2`，移除 `/v1/responses` 拒绝的 `max_tool_calls`、保留 `parallel_tool_calls: false` 与单次调用守卫）生成与编辑实测。
+- **MiniMax 图像**：在 `https://ai.xcherry.top` 渠道配置 `param_override`（对 `model` 前缀 `image-` 注入 `response_format: "base64"`，不影响同渠道文本对话模型）并在 `model-catalog.yaml` 声明跨适配器 `maxImagesPerRequest: 9` 后，完成 `minimax-images` 与 `openai-images` 下 `image-01`、`image-01-live` 的多图生成与人物参考（`subject_reference`）实测。
+- **Google Gemini 图像**：HTTP 适配器在拼接非 `v1` 版本路径（`v1beta`、`api/v3`）前自动剥离复用的 `/v1` 大脑地址后缀；完成 `google-gemini-image` 下 `gemini-3.1-flash-image`、`gemini-3-pro-image` 的真实生成与参考图编辑（`image.edit`）实测。
+- **多轮绘图与定稿恢复**：完成首轮多图请求（`desiredCount: 2` 网关返回 1 张保存为 `partial`、`file_service.output_incomplete` 且不自动补图）→ 选中候选反馈编辑（`image.edit`）→ 用户定稿（`selectionRevision=1`）→ 同 `requestId` 幂等重试（200）→ 过期版本双窗冲突（409 `file.state_conflict`）→ 定稿后第 3 轮继续生成保留原 `finalCandidateId` 实测；生产容器 `cherynyxus-backend-1` 核实安装 Sharp `0.35.5`（libvips `8.18.7`）。
+- **剩余边界**：本地源码修改与模板 `model-catalog.yaml` 待后续统一发版同步至运行容器；`doubao-seedream` 待火山方舟渠道接入后补验；浏览器三视图、窄窗/键盘/触屏与成图视觉效果按用户决定接受当前状态。
 
 合规原图直接复用时，前端现按返回版本标识引用，不再把原版本误标为 adapted。7B 用户反馈和固定版本证据在 `/home/chery/docker/cherynyxus/releases/image-variant-reuse-fix-20261022/step8-batch7b-history-card-check.json`：`360.gif`、版本 `a6a0fc04-7719-41f1-9dbb-89d9077faa94`、`original`，请求 `completed/omit`、`binaryBytes=0`。仅说明该附件未读入，不代表没有文字模型调用。
 

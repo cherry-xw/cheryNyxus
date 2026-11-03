@@ -8,7 +8,6 @@
 | [万象台](wanxiangtai/README.md)                                                | 规划中     | 多 Agent 团队协作、独立工作区、交付集成与桌面呈现              |
 | [上下文统计、待办进度与连续消息交互](conversation-observability-and-input/README.md) | 规划中 | 工作台三模式统计、待办进度与连续消息采用策略初稿待讨论确认；QQ 来源与上下文专题已收口归档 |
 | [文件权限与交付验收](file-access-and-delivery/README.md) | 待综合验证 | 跨账号与登录权限、QQ 文件/普通回复、工作区导入导出及交付恢复 |
-| [图片服务与会话绘图验收](image-services-and-drawing/README.md) | 执行中 | Imagen 破坏性移除、OpenAI Images/Responses 真实验证与多轮定稿已完成，跨所有者查询修复为 403；剩余原生厂商与界面待补验 |
 | [服务端工具完整流程](server-tools-completion/README.md) | 执行中 | 真实任务验证管理、完整有序事件、受保护续接及 GLM/GPT 产品多轮 |
 
 ## 使用规则
@@ -40,5 +39,6 @@
 - 外部设置默认核实：**结束，已归档**。正式说明见[设置中心](../frontend/settings.md#默认显示与明确编辑)与[文件能力验证](../quality/verification/file-capabilities.md#独立跟进入口)；四项官方未明确省略结果的外部默认保持“未设置 · 默认未核实”及原值保护。
 - 受管小应用回复与实时缓存维护：**结束，已归档**。正式说明见[受管小应用](../backend/service/managed-apps.md)、[维护指南](../guides/managed-apps.md)与[验证说明](../quality/verification/managed-apps.md)；续期可读时间 `leaseExpiresAtText` 与模板 SSE `no-store` 已完成源码修正与离线验证，既有线上应用不自动覆盖。
 - QQ 聊天理解、工具与配置（含 QQ 来源与上下文专题）：**结束，已归档**。正式说明见[QQ 模块](../../plugins/qq/README.md)、[宿主插件架构](../shared/architecture/ingress-plugins.md#宿主认可的请求身份)、[数据库持久化模块](../backend/db/README.md#职责)与[网页搜索与读取](../backend/agent/web-search.md#webfetch-安全边界)；C25—C27 已合入发布副本并增量更新至 `cherynyxus-qq-module@0.1.62`（注册表修订 `69`、配置修订 `20`），日常体验跟进、未知上传回执、旧资料清理（M08）及延期项归入[后续审核清单](../quality/verification/qq-safe-outcomes.md#5-qq-聊天理解工具学习与来源上下文日常跟进及维护清单)。
+- 图片服务与会话绘图验收：**结束，已归档**。正式说明见[模型能力](../backend/agent/model-capabilities.md)、[模型目录](../backend/agent/model-catalog.md#图像服务参数与实现边界)、[会话绘图协议](../shared/protocol/websocket.md#会话绘图请求与记录)、[工作台文件](../frontend/workbench-files.md#输入与发送)与[文件能力验证](../quality/verification/file-capabilities.md#文件草稿与绘图查询边界)；`google-imagen` 破坏性移除、跨所有者查询 403 修复、GPT/MiniMax/Gemini 标准后端配置全链路绘图与多轮定稿实测及生产容器 Sharp `0.35.5` 核验已完成，`doubao-seedream` 待渠道补测、服务端工具多轮归[服务端工具完整流程](server-tools-completion/README.md)，待生产发版与界面视觉边界归入[文件能力验证](../quality/verification/file-capabilities.md)及[延期审核](../quality/verification/deferred-development-audit.md)。
 
 上述任务按用户确认结束，临时计划与验收材料已删除；有效说明归正式模块，结束状态不代表所有已记录限制均已修复。

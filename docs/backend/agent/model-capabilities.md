@@ -153,5 +153,5 @@ Web 的“文件与上下文 → 图片适配”和 Manager 设置模块的“�
 文件输入由 `planFileInputs` 按固定资产版本生成本次请求，持久历史不被改写；正文不再承担媒体标记解析。前置理解记录按用户问题、文件版本、处理对象、权限与截至最新真实用户输入的上下文复用。同一问题中的工具循环不因追加工具消息而重复理解；新的用户问题重新计算，不能用旧观察冒充对新细节的读取。
 
 1. **有序消息 `parts`**：消息协议与 `LLMResponse` 支持有序 `parts`（`text`、`asset`、`directive`、`role_mention`、`workspace_ref`），其中 `asset` part 携带 `assetId`、`assetVersionId`、`variant ('original' | 'adapted')` 与 `usage ('content' | 'reference-only')`。`content` 字符串作为文本边界的派生投影保留。
-2. **输入理解与多轮保留**：图片按独立策略，其他文件按 `context.recentUserTurns` 进入模型上下文（上限 10 个不同资产版本、累计二进制 ≤ 16 MiB）；到期不删除原件或持久消息。描述必须标来源和固定版本，无视觉观察时明确暂无视觉描述，不能用生成提示词冒充成图内容。`usage='reference-only'` 只保存展示，不触发自动读取或补描述。已有验证的适用范围见[文件能力验证](../../quality/verification/file-capabilities.md#模型与绘图证据适用范围)，未完成的真实图片产品验证归[独立任务](../../plan/image-services-and-drawing/README.md)。
+2. **输入理解与多轮保留**：图片按独立策略，其他文件按 `context.recentUserTurns` 进入模型上下文（上限 10 个不同资产版本、累计二进制 ≤ 16 MiB）；到期不删除原件或持久消息。描述必须标来源和固定版本，无视觉观察时明确暂无视觉描述，不能用生成提示词冒充成图内容。`usage='reference-only'` 只保存展示，不触发自动读取或补描述。已有验证的适用范围见[文件能力验证](../../quality/verification/file-capabilities.md#模型与绘图证据适用范围)，服务端工具与完整产品多轮验证归[服务端工具完整流程](../../plan/server-tools-completion/README.md)。
 3. **MiniMax 对话图片输入形态**：MiniMax 对话接口仅支持 `image_url`（base64 data URI 或 URL），不支持对话图片 `file_id`；本地资产统一经 base64 注入模型请求。
