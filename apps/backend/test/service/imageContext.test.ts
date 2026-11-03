@@ -11,7 +11,8 @@ import { addMessage } from '@/db/message.js'
 import config from '@/utils/config.js'
 import { planFileInputs } from '@/agent/middleware/fileInputPlanning.js'
 import { imageTurnView, requestImageRead, getImageDescription, saveImageDescription, listImageDescriptions, beginDescriptionAttempt, finishDescriptionAttempt, imageDescriptionIssue } from '@/service/fileServices/imageContext.js'
-import { saveFileRequestPlan, patchFileRequestPlan, getFileRequestPlan } from '@/service/fileServices/inputObservations.js'
+import { saveFileRequestPlan, patchFileRequestPlan, getFileRequestPlan, getRequestServerImageObservation } from '@/service/fileServices/inputObservations.js'
+import { checkpointMiddleware } from '@/agent/middleware/checkpoint.js'
 import { createMockContext, createMockRuntime, createTestSense, mockLLMAdapter, mockMessageAdapter, mockSenseAdapter, makeNext } from '../agent/helpers/fakeContext.js'
 import { chatMiddleware } from '@/agent/middleware/chat.js'
 import { collectChunks } from '../agent/helpers/chunkAssert.js'
@@ -411,5 +412,117 @@ describe('图片轮数与描述持久记录', () => {
     expect(imageDescriptionIssue(chatId, part())).toContain('不会自动重试')
     finishDescriptionAttempt(chatId, key)
     expect(imageDescriptionIssue(chatId, part())).toBeUndefined()
+  })
+
+  it('服务端 analyze_image 单图写入资产观察描述，多图无法一一关联时只保存请求级观察而不误挂单图描述', async () => {
+    // 1. 单图场景：唯一图片 + 唯一完成的 analyze_image → 写入该图片版本的观察描述
+    const singleUserId = randomUUID()
+    const singleCtx = createMockContext({
+      runtime: createMockRuntime({}),
+      messages: [msg(singleUserId, [part('first')])],
+    })
+    singleCtx.soul.chatId = chatId
+    await collectChunks(
+      checkpointMiddleware(singleCtx, async function* () {
+        yield {
+          type: 'stream',
+          thinkingDelta: '',
+          contentDelta: '这是一个红色机器人给绿色幼苗浇水。',
+          serverToolDeltas: [
+            {
+              kind: 'start',
+              index: 1,
+              id: 'call_img_single',
+              name: 'analyze_image',
+              arguments: '{"prompt":"描述图片"}',
+              status: 'started',
+              protocol: 'anthropic-messages',
+            },
+            {
+              kind: 'result',
+              index: 2,
+              callId: 'call_img_single',
+              name: 'analyze_image',
+              result: '画面左侧是红色机器人，拿着蓝色洒水壶浇灌绿色幼苗。',
+              status: 'completed',
+            },
+          ],
+          stopReason: 'end_turn',
+        }
+      }),
+    )
+    expect(getImageDescription(chatId, part('first'))).toMatchObject({
+      source: 'observation',
+      operationId: 'call_img_single',
+      text: expect.stringContaining('红色机器人'),
+    })
+
+    // 2. 多图场景：同一用户轮含两张图片 → 不随机挂到单张图片，而是保存请求级观察
+    const multiUserId = randomUUID()
+    const multiCtx = createMockContext({
+      runtime: createMockRuntime({}),
+      messages: [msg(multiUserId, [part('second'), part('third')])],
+    })
+    multiCtx.soul.chatId = chatId
+    await collectChunks(
+      checkpointMiddleware(multiCtx, async function* () {
+        yield {
+          type: 'stream',
+          thinkingDelta: '',
+          contentDelta: '分别描述两张图。',
+          serverToolDeltas: [
+            {
+              kind: 'start',
+              index: 1,
+              id: 'call_img_m1',
+              name: 'analyze_image',
+              arguments: '{"prompt":"描述图1"}',
+              status: 'started',
+              protocol: 'anthropic-messages',
+            },
+            {
+              kind: 'result',
+              index: 2,
+              callId: 'call_img_m1',
+              name: 'analyze_image',
+              result: '图一：红色机器人与蓝色水壶。',
+              status: 'completed',
+            },
+            {
+              kind: 'start',
+              index: 3,
+              id: 'call_img_m2',
+              name: 'analyze_image',
+              arguments: '{"prompt":"描述图2"}',
+              status: 'started',
+              protocol: 'anthropic-messages',
+            },
+            {
+              kind: 'result',
+              index: 4,
+              callId: 'call_img_m2',
+              name: 'analyze_image',
+              result: '图二：深蓝夜空中的黄色弯月与紫色火箭。',
+              status: 'completed',
+            },
+          ],
+          stopReason: 'end_turn',
+        }
+      }),
+    )
+    expect(getImageDescription(chatId, part('second'))).toBeUndefined()
+    expect(getImageDescription(chatId, part('third'))).toBeUndefined()
+    const reqObs = getRequestServerImageObservation(chatId, multiUserId)
+    expect(reqObs).toMatchObject({
+      sourceMessageId: multiUserId,
+      assets: [
+        { assetId: 'second', assetVersionId: 'v-second' },
+        { assetId: 'third', assetVersionId: 'v-third' },
+      ],
+      observations: [
+        expect.objectContaining({ operationId: 'call_img_m1', toolName: 'analyze_image' }),
+        expect.objectContaining({ operationId: 'call_img_m2', toolName: 'analyze_image' }),
+      ],
+    })
   })
 })

@@ -187,14 +187,34 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
         ? [[imageKey(c.part), { key: imageKey(c.part), asset }] as const] : []
     } catch { return [] }
   })).values()]
+  const hasAnthropicServerToolTrigger =
+    protocol === 'anthropic-messages' &&
+    effective.toolCall.enabled &&
+    ((runtime.builtSenses?.length ?? 0) > 0 ||
+      (runtime.senseTable?.size ?? 0) > 0 ||
+      effective.serverTools.webSearch.state === 'supported')
+  const serverAssistedImage =
+    protocol === 'anthropic-messages' &&
+    effective.serverTools.imageInspect.state === 'supported' &&
+    hasAnthropicServerToolTrigger
+  const effectiveImageInput =
+    effective.imageInput.formats?.length || !serverAssistedImage
+      ? effective.imageInput
+      : {
+          formats: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as Array<
+            'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
+          >,
+          animation: 'first-frame' as const,
+          ...effective.imageInput,
+        }
   const normalizedImages = new Map<string, PreparedImage>()
   const imageErrors = new Map<string, Error>()
-  if (bindings['image.inspect']?.mode !== 'tool' && effective.input.image.state === 'supported' && ['openai-chat-completions', 'openai-responses', 'anthropic-messages'].includes(protocol ?? '')) {
+  if (bindings['image.inspect']?.mode !== 'tool' && (effective.input.image.state === 'supported' || serverAssistedImage) && ['openai-chat-completions', 'openai-responses', 'anthropic-messages'].includes(protocol ?? '')) {
     for (const item of imageItems) {
       try {
         requestSignalForImage(ctx)
         const { data } = await store!.read(item.asset.id, access!, item.asset.versionId)
-        normalizedImages.set(item.key, await prepareImage(data, config.files?.imageAdaptation, effective.imageInput))
+        normalizedImages.set(item.key, await prepareImage(data, config.files?.imageAdaptation, effectiveImageInput))
         requestSignalForImage(ctx)
       } catch (error) {
         requestSignalForImage(ctx)
@@ -253,10 +273,17 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
         continue
       }
       const kind = asset.mimeType === 'application/pdf' ? 'pdf' : asset.kind
-      const native = ['image', 'audio', 'video', 'pdf'].includes(kind)
-        && effective.input[kind as keyof typeof effective.input].state === 'supported'
-        && supportsNativeFile(protocol, c.preparedImage?.mimeType ?? asset.mimeType)
-      if ((binding.mode === 'auto' || binding.mode === 'native') && native) c.decision.action = 'native'
+      const nativeSupported =
+        ['image', 'audio', 'video', 'pdf'].includes(kind) &&
+        effective.input[kind as keyof typeof effective.input].state === 'supported'
+      const serverImageSupported = kind === 'image' && !nativeSupported && serverAssistedImage
+      const native =
+        (nativeSupported || serverImageSupported) &&
+        supportsNativeFile(protocol, c.preparedImage?.mimeType ?? asset.mimeType)
+      if ((binding.mode === 'auto' || binding.mode === 'native') && native) {
+        c.decision.action = 'native'
+        if (serverImageSupported) c.decision.targetId = 'analyze_image'
+      }
       else if ((binding.mode === 'auto' || binding.mode === 'native') && plainText(asset)) c.decision.action = 'extract'
       else {
         if (binding.mode === 'native') throw fileInputError('capability.unavailable', '当前模型和接口不能原生读取此格式')
@@ -486,7 +513,9 @@ export async function planFileInputs(ctx: MiddlewareContext, history: LLMRespons
       '本次请求的文件输入状态以实际附件和下列清单为准；历史工具结果中的 image_read_prepared 只是登记状态，不是本次仍在等待图片的结论。',
       '“本次请求”指发送给模型的整组消息，不只是最后一条用户消息。实际附在较早用户消息中的图片也是本次图片输入；不要因为最新用户消息只有文字就说本次没有图片，也不要用旧回答中的未携图结论覆盖当前输入状态。只有旧文字描述而没有实际图片时，仍不算本次看图。',
       ...(attachments.some(a => a.kind === 'image') ? [
-        `本次请求已附以下原生图片输入，请直接查看图片并回答当前问题，不必等待用户再发一轮：${JSON.stringify(attachments.filter(a => a.kind === 'image').map(a => ({ assetId: a.assetId, assetVersionId: a.assetVersionId })))}`,
+        serverAssistedImage && effective.input.image.state !== 'supported'
+          ? `本次请求已附以下图片输入（由当前协议服务端工具 analyze_image 分析，非模型原生视觉），请结合分析结果回答当前问题，不必等待用户再发一轮：${JSON.stringify(attachments.filter(a => a.kind === 'image').map(a => ({ assetId: a.assetId, assetVersionId: a.assetVersionId })))}`
+          : `本次请求已附以下原生图片输入，请直接查看图片并回答当前问题，不必等待用户再发一轮：${JSON.stringify(attachments.filter(a => a.kind === 'image').map(a => ({ assetId: a.assetId, assetVersionId: a.assetVersionId })))}`,
       ] : ['本次请求没有原生图片输入；不得把工具准备状态或旧文字描述当作本次已看图。']),
       ...(candidates.some(c => c.asset?.kind === 'image' && c.decision.action === 'tool') ? [
         `本次已提供以下图片的理解工具文字观察，不是模型直接看到原图；只能依据观察回答，未覆盖的细节应明确说明：${JSON.stringify(candidates.filter(c => c.asset?.kind === 'image' && c.decision.action === 'tool').map(c => ({ assetId: c.part.assetId, assetVersionId: c.part.assetVersionId })))}`,

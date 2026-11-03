@@ -659,7 +659,7 @@ models:
             imageInspect: supported
           serverToolDefinitions:
             - name: analyze_image
-              description: 服务端图片分析；产品请求的最小触发条件尚未确认
+              description: 服务端图片分析；需请求携带至少一个工具定义触发，非模型原生视觉
               documentationUrl: https://docs.bigmodel.cn/cn/coding-plan/mcp/vision-mcp-server
             - name: web_search_prime
               description: 服务端联网搜索；搜索摘要不等于页面原文

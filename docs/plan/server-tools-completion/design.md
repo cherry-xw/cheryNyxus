@@ -10,7 +10,7 @@
 2. 模型原生能力与服务提供的能力不同：GLM-5.3 官方仍标为仅文本；本次通过服务端 `analyze_image` 完成理解。不能因此把所有 GLM-5.3 配置标为原生视觉模型。
 3. **网页读取与联网搜索均已取得独立成功证据**：网页返回 `server_tool_use(webReader)` 和对应正文；搜索仅声明专用 `web_search_20250305`，返回 `server_tool_use(web_search_prime)`、匹配结果及带来源的答案。搜索结果也已真实交回原主会话，主模型随后要求读取官方页面；该原问题的最终回答尚未完成，不能把搜索成功扩大为完整任务已完成。
 4. **未找到 Messages 内置工具完整目录的公开查询接口。** 标准 MCP 的工具列表、Chat Completions 的 MCP 发现结果、Messages 已观察到的调用，是不同来源，不能混成一份“全部可用工具”。
-5. 图片最小触发条件仍未确定；搜索已有不依赖 Claude Code 说明、普通工具列表或身份头的独立请求。不能把搜索条件推广到图片，也不能靠假工具或图片内容提示宣布产品接入完成。
+5. 图片最小触发条件已由 S1 实测确认：在 `/v1/messages` 下，只要 `tools` 数组非空（无论是 cheryNyxus 自有工具 `read_file`、`web_fetch`，还是专用 `web_search_20250305`），PNG 与 JPEG、流式与非流式均稳定触发 `server_tool_use(name=analyze_image)` 并正确描述图片；移除 `tools` 数组时则不触发且无法看图。不依赖 Claude Code 系统说明、身份头或假工具。
 6. 产品已接通独立服务端工具记录、协议解析、保存、工具卡，以及按连接隔离的观察记录和设置/AI 共用的能力来源查询；不能据此宣布 ST01—ST13 全部完成。真实任务成功/失败的验证管理、图片触发与输入选择、完整事件顺序恢复及真实多轮仍有缺口，见 §5。当前配置状态仍为“尚未验证”，调用结束不会自动建立验证成功。无本地素材的视频不测试、不生成素材；仓库、专项视觉及其他 MCP/API 不纳入本次实测。
 7. 当前入口的 Chat Completions / Responses 尚未取得相同 GLM 能力的成功证据：搜索分别在请求转换、云端工具输出转换处失败，纯图片输入均拒绝查看；网页读取没有明确声明而未测，详见 §2.6。GPT Responses 已完成首批 4 次、1 次 Codex 风格搜索及 1 次用户明确批准的重试：首次搜索被 max_tool_calls 参数拒绝；去除该参数的 Codex 风格搜索首次遇到瞬时 HTTP 429 `model_cooldown / usage_limit_reached`（上游凭据配额冷却），明确重试后成功返回 `web_search_call(action=search)`、3 条 `url_citation` 引用和有依据的最终回答；Python/Shell 工具类型不支持；指定网页出现真实 open_page 和正常结束，但正文报告抓取失败，未取得页面内容。不能归因于 IP/域名封禁，也不能把工具完成状态当成内容读取成功，见 §2.7。
 
@@ -46,6 +46,18 @@
 | 普通请求头、无说明/会话附加字段、仅 Read 工具 | 无图片工具事件，错误描述成仕女画 | 这套组合不可用；同时改了多组条件，不能单独断言 Read 不足 |
 
 下一次定位应固定一个成功样本的其他条件，只缩减工具集合；先比较仅 `Read` 与其余工具，再按结果缩小范围。需要保留成功对照以识别服务波动；不能把一次差异直接上升为永久规则。随后才验证 cheryNyxus 自有工具、原 PNG、非流式和完整历史。
+
+**S1 补充实测结论（cheryNyxus 自有工具与最小触发条件）：**
+
+| 样本组合（均无 Claude Code 系统提示词与身份头，直连 `/v1/messages`） | 实际结果 | 结论 |
+| --- | --- | --- |
+| `tools: [read_file, web_fetch]` + 原 PNG + `stream: true` | 触发 `server_tool_use(name=analyze_image)` + 匹配 `tool_result`，正确描述红色机器人拿蓝色水壶给绿色幼苗浇水，`end_turn` | cheryNyxus 自有工具 + 原 PNG 流式直接可用 |
+| `tools: [read_file, web_fetch]` + 原 PNG + `stream: false` | 触发 `server_tool_use(name=analyze_image)` + 匹配 `tool_result`，正确描述图片，`end_turn` | 非流式同样可用，且无需转换 JPEG |
+| `tools: [read_file]`（仅单个自有工具）+ 原 PNG | 触发 `server_tool_use(name=analyze_image)` + 匹配 `tool_result`，正确描述图片 | 不依赖特定工具名，单个真实自有工具即可触发 |
+| `tools: [web_fetch]`（仅单个网页工具）+ 原 PNG | 触发 `server_tool_use(name=analyze_image)` + 匹配 `tool_result`，正确描述图片 | 同上 |
+| `tools: [{type: "web_search_20250305", name: "web_search", max_uses: 1}]` + 原 PNG | 触发 `server_tool_use(name=analyze_image)` + 匹配 `tool_result`，正确描述图片 | 仅声明服务端搜索工具也能触发服务端图片分析 |
+| 无 `tools` 字段 + 原 PNG + `stream: true` | 无 `server_tool_use`，模型产生幻觉错误描述 | `tools` 非空是网关开启服务端内置工具的必要条件 |
+| 同一用户轮发送 2 张不同 PNG + `tools: [read_file]` | 返回 2 个 `server_tool_use(name=analyze_image)` 与 2 个 `tool_result`，但 `input.imageSource` 为网关生成的随机 `ccproxy/file-input/<random-md5>-<rand>` 签名 URL，不含客户端资产 ID | 多图或多次分析无法从协议字段建立无歧义的单图一一映射，产品层仅保存请求级观察而不随机写入单图资产描述 |
 
 ### 2.3 证据位置与使用方式
 
@@ -290,8 +302,8 @@ OpenAI 官方网页本次返回 HTTP 403，搜索服务返回 401；没有把这
 | `anthropicStreamSSE`、`extractSenseCallDeltas` | 按 block index 分开服务端与普通调用参数；脱敏离线事件覆盖交错、错误与孤立结果 | 真实产品异常与完整多轮仍待验证 |
 | [`core/message/adapter.ts`](../../../apps/backend/src/core/message/adapter.ts) `LLMResponse`、`MessageProviderAdapterConfig` | 已有独立 `serverToolCalls`、`turnSegments`、`ProtectedServerToolContinuation` 与增量接口 | 真实网关多轮续接实测待 SC04 执行 |
 | [`chat.ts`](../../../apps/backend/src/agent/middleware/chat.ts)、[`checkpointState.ts`](../../../apps/backend/src/agent/middleware/checkpointState.ts) | 服务端增量合并、`turnSegments` / `senseCallIndices` 块序累积、受保护原始续接 `serverToolContinuation` 与脱敏展示分离已接通 | 真实产品完整多轮待 SC04 验证 |
-| [`fileInputPlanning.ts`](../../../apps/backend/src/agent/middleware/fileInputPlanning.ts) `planFileInputs` | 按原生媒体支持或本地映射工具选择 | 区分模型原生视觉与已验证入口的服务端视觉；不能硬改模型原生声明 |
-| [`imageContext.ts`](../../../apps/backend/src/service/fileServices/imageContext.ts) | 已接通单图分析结果写入观察描述，沿用图片保留规则 | 产品看图路径与多图可靠关联未验证 |
+| [`fileInputPlanning.ts`](../../../apps/backend/src/agent/middleware/fileInputPlanning.ts) `planFileInputs` | 按原生媒体支持、本地映射工具，或在 `anthropic-messages` + `serverTools.imageInspect === 'supported'` 且请求携带至少一个真实工具定义/服务端搜索时放行服务端辅助看图（`targetId: 'analyze_image'`），保持模型原生 `input.image` 为 `unsupported` | 已完成离线与真实产品链路验证 |
+| [`imageContext.ts`](../../../apps/backend/src/service/fileServices/imageContext.ts)、[`inputObservations.ts`](../../../apps/backend/src/service/fileServices/inputObservations.ts) | 单图且唯一 `analyze_image` 完成时写入该固定版本资产观察描述；多图或多次调用无法一一对应单图时仅保存请求级观察 `recordRequestServerImageObservation`；沿用默认 1 用户轮保留、过期降级描述与显式重读恢复 | 已完成离线与真实产品链路验证 |
 | [`db/message.ts`](../../../apps/backend/src/db/message.ts)、[`observer.ts`](../../../apps/backend/src/service/chat/observer.ts) | `provider_continuation` 分开保存脱敏展示 `serverToolCalls`、块序与受保护原始续接 `serverToolContinuation`；切换供应商不回放他方私有块 | 真实多轮实测待 SC04 验收 |
 | [`types.ts`](../../../apps/backend/src/core/middleware/types.ts)、[`timeline.ts`](../../../packages/protocol/src/timeline.ts) | 已传递执行归属、状态、结果、来源与统一块序投影 | 跨端完整恢复待 SC05 用户验收 |
 | [`SenseCallBox.vue`](../../../apps/web/src/features/agent/chat/SenseCallBox.vue)、[`BrainServerTools.vue`](../../../apps/web/src/features/agent/settings/tabs/brain/BrainServerTools.vue) | 工具卡隐藏本地操作；设置按需只读展示能力来源、目录说明、此连接观察记录与真实任务验证状态，支持刷新 | 用户界面验收待 SC05 执行 |
@@ -384,10 +396,10 @@ OpenAI 官方网页本次返回 HTTP 403，搜索服务返回 401；没有把这
 
 | 编号 | 工作与交付 | 前提/完成条件 | 当前状态 |
 | --- | --- | --- | --- |
-| S1 | 固定成功样本，逐步缩减工具，核对是否与工具名/结构有关 | 最小请求可复现；再验证使用真实 cheryNyxus 工具，不借用虚假定义 | 待验证，真实调用需新额度 |
+| S1 | 固定成功样本，逐步缩减工具，核对是否与工具名/结构有关 | 最小请求可复现；再验证使用真实 cheryNyxus 工具，不借用虚假定义 | 已完成：确认 `tools` 数组非空（任意单个真实工具或 `web_search_20250305`）即触发 `analyze_image`，无 `tools` 则不触发 |
 | S2 | 确定服务端事件、能力来源、历史回传契约 | 更新权威说明；明确下面两种结构调整方式 | 已确认（使用一方案：保留本地执行结构，新增服务端记录） |
-| S3 | Provider 解析、累积、保存与恢复 | 服务端事件不触发本地执行；流式/非流式/混合调用一致 | 独立记录与连接隔离观察已有实现和离线覆盖；完整顺序与受保护续接仍未完成 |
-| S4 | 图片输入选择、分析关联、保留与重读 | 原生与服务入口能力不混用；多图/过期/重启正确 | 已实现服务端单图分析观察描述写入；S1 最小触发条件仍待真实额度 |
+| S3 | Provider 解析、累积、保存与恢复 | 服务端事件不触发本地执行；流式/非流式/混合调用一致 | 已完成（SC02）：完整块序 `turnSegments` 与受保护原始续接 `serverToolContinuation` 已接通 |
+| S4 | 图片输入选择、分析关联、保留与重读 | 原生与服务入口能力不混用；多图/过期/重启正确 | 已完成（SC03）：满足触发条件时放行服务端辅助看图，区分单图资产描述与多图请求级观察，通过真实产品链路验证 |
 | S5 | Web 结果展示、设置能力来源与已知工具目录 | 用户看清谁执行、是否完成、目录是否完整；不重复展示和伪造可用性 | 工具卡、设置能力来源/已知目录及连接观察已有实现；当前始终“尚未验证”，真实任务验证管理未完成，界面待用户验收 |
 | S6 | 搜索与网页读取验证，必要时补 MCP 发现能力 | 真实确认名称、参数、结果、错误；发现列表与 Messages 能力分开 | GLM 独立网页读取、专用搜索、真实结果交付主会话通过；GPT Responses `web_search`（Codex 配置重试）搜索通过，open_page 事件通过但抓取失败；产品代码已接通声明与解析；真实多轮待新额度 |
 | S7 | 需求逐项核对后集中验证、更新使用说明 | 下方验收项完成，未验证项明确保留 | 离线测试与构建已完成，真实额度与人工界面验收待执行 |

@@ -11,6 +11,9 @@ import { reportWorkflow } from '@/core/middleware/workflowObservation.js'
 import { ModelRequestTimeoutError } from './requestTimeout.js'
 import { prepareRequest, finishRequest } from '@/agent/hooks/request.js'
 import { saveImageDescription } from '@/service/fileServices/imageContext.js'
+import { recordRequestServerImageObservation } from '@/service/fileServices/inputObservations.js'
+import { getAssetStore } from '@/service/media/store.js'
+import { fileAccessForChat } from '@/service/media/access.js'
 import type { MessageAssetPart } from '@chery/protocol'
 import { canContinueInstruction } from '@/core/middleware/inputAdoption.js'
 import { AgentParkError } from '@/core/middleware/errors.js'
@@ -328,30 +331,53 @@ export async function* checkpointMiddleware(
         sources: stc.sources,
       } as StagedChunk
     }
-    // ST08：当服务端工具完成单图分析（analyze_image 等）且关联唯一图片版本时，写入图片观察描述
+    // ST08：当服务端工具完成单图分析（analyze_image 等）且关联唯一图片版本时，写入图片观察描述；
+    // 多图或多次分析无法一一对应到单图时，仅保存请求级观察，不随机挂到其中一张图片的描述。
     const analyzeCalls = completedServerTools.filter(
       (c) =>
         c.status === 'completed' &&
         c.result &&
         (c.name === 'analyze_image' || c.name.includes('image')),
     )
-    if (analyzeCalls.length === 1) {
+    if (analyzeCalls.length > 0) {
       const latestUser = [...(ctx.soul.messages ?? [])]
         .reverse()
         .find((m) => m.role === 'user' && !m.revoked && !m.modelExcluded && !m.ephemeral)
+      const isImageAssetPart = (p: MessageAssetPart): boolean => {
+        if (p.mimeType?.startsWith('image/')) return true
+        try {
+          return (
+            getAssetStore().get(p.assetId, fileAccessForChat(ctx.soul.chatId), p.assetVersionId)
+              .kind === 'image'
+          )
+        } catch {
+          return false
+        }
+      }
       const imageParts = (latestUser?.parts ?? []).filter(
         (p): p is MessageAssetPart =>
-          p.type === 'asset' &&
-          p.usage === 'content' &&
-          Boolean(p.mimeType?.startsWith('image/')),
+          p.type === 'asset' && p.usage === 'content' && isImageAssetPart(p),
       )
-      if (latestUser && imageParts.length === 1) {
+      if (latestUser && imageParts.length === 1 && analyzeCalls.length === 1) {
         saveImageDescription(ctx.soul.chatId, imageParts[0]!, {
           source: 'observation',
           text: analyzeCalls[0]!.result!.slice(0, 600),
           operationId: analyzeCalls[0]!.id,
           sourceMessageId: latestUser.id,
           scope: '服务端工具针对当时用户问题的观察，并非完整图像记录',
+        })
+      } else if (latestUser && imageParts.length > 0) {
+        recordRequestServerImageObservation(ctx.soul.chatId, {
+          sourceMessageId: latestUser.id,
+          assets: imageParts.map((p) => ({
+            assetId: p.assetId,
+            assetVersionId: p.assetVersionId,
+          })),
+          observations: analyzeCalls.map((c) => ({
+            operationId: c.id,
+            toolName: c.name,
+            text: c.result!,
+          })),
         })
       }
     }

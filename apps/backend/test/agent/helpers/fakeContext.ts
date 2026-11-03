@@ -133,6 +133,7 @@ export function createMockRuntime(opts: {
   const brain: BrainConfig = {
     model: opts.brain?.model ?? "test-model",
     provider: opts.brain?.provider ?? "mock",
+    ...(opts.brain?.protocol ? { protocol: opts.brain.protocol } : {}),
     url: opts.brain?.url,
     key: opts.brain?.key,
     thinking: opts.brain?.thinking,

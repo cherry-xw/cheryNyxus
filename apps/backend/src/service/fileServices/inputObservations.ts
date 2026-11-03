@@ -49,3 +49,59 @@ export function patchFileRequestPlan(chatId: string, requestId: string, patch: R
   if (current.requestId !== requestId) return
   saveFileRequestPlan(chatId, { ...current, ...patch })
 }
+
+export interface ServerImageRequestObservation {
+  scope: string
+  sourceMessageId?: string
+  assets: Array<{ assetId: string; assetVersionId: string }>
+  observations: Array<{ operationId: string; toolName: string; text: string }>
+  createdAt: number
+}
+
+/**
+ * ST08：多图或多次服务端视觉分析无法一一对应到单张图片时，保存请求级分析观察，
+ * 不随机挂到其中一张图片的资产描述。
+ */
+export function recordRequestServerImageObservation(
+  chatId: string,
+  input: {
+    sourceMessageId?: string
+    assets: Array<{ assetId: string; assetVersionId: string }>
+    observations: Array<{ operationId: string; toolName: string; text: string }>
+  },
+): ServerImageRequestObservation {
+  const record: ServerImageRequestObservation = {
+    scope: '多图或多次服务端分析请求级观察，未逐图绑定资产描述',
+    ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
+    assets: input.assets,
+    observations: input.observations.map((o) => ({
+      operationId: o.operationId,
+      toolName: o.toolName,
+      text: o.text.slice(0, 600),
+    })),
+    createdAt: Date.now(),
+  }
+  const key = `server-image-obs:${input.sourceMessageId ?? 'latest'}`
+  saveFileInputObservation(chatId, key, record)
+  try {
+    const access = fileAccessForChat(chatId)
+    const row = db()
+      .prepare('SELECT data_json FROM file_request_plans WHERE chat_id=? AND owner_id=?')
+      .get(chatId, access.ownerId) as { data_json: string } | undefined
+    if (row) {
+      const current = JSON.parse(row.data_json)
+      saveFileRequestPlan(chatId, { ...current, serverImageObservation: record })
+    }
+  } catch {
+    // Non-fatal if chat has no saved file_request_plans row
+  }
+  return record
+}
+
+export function getRequestServerImageObservation(
+  chatId: string,
+  sourceMessageId?: string,
+): ServerImageRequestObservation | undefined {
+  const key = `server-image-obs:${sourceMessageId ?? 'latest'}`
+  return getFileInputObservation(chatId, key) as ServerImageRequestObservation | undefined
+}

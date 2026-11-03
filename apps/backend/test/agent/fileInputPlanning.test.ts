@@ -307,4 +307,71 @@ describe('结构化文件请求计划', () => {
     ])
     expect(mocks.execute.mock.calls[0]?.[0]?.question).toContain('比较前面两张图片')
   })
+
+  it('GLM Anthropic Messages 具备真实工具触发条件时放行服务端工具看图，且不把模型标为原生视觉', async () => {
+    mocks.read.mockResolvedValue({ asset: asset('a'), data: pngFixture })
+    const ordinaryTool = createTestSense('read_file', mocks.execute, SupervisionLevel.auto)
+    const glmAnthropicCtx = createMockContext({
+      runtime: createMockRuntime({
+        senses: [ordinaryTool],
+        brain: {
+          provider: 'bigmodel',
+          protocol: 'anthropic-messages',
+          model: 'co-glm-5.3',
+          capabilities: {
+            toolCall: true,
+            input: { image: 'unsupported', audio: 'unsupported', video: 'unsupported', pdf: 'unsupported' },
+            serverTools: { imageInspect: 'supported', webSearch: 'supported', webReader: 'supported' },
+          },
+        },
+      }),
+    })
+    const result = await planFileInputs(glmAnthropicCtx, [msg('glm-img', [part('a')])])
+    expect(result.attachments).toHaveLength(1)
+    expect(result.plan?.[0]).toMatchObject({
+      assetId: 'a',
+      action: 'native',
+      targetId: 'analyze_image',
+    })
+    expect(result.capabilitiesHint).toContain('由当前协议服务端工具 analyze_image 分析，非模型原生视觉')
+
+    // 无工具调用或切换为其他协议时，不放行服务端看图
+    const noToolCtx = createMockContext({
+      runtime: createMockRuntime({
+        senses: [],
+        brain: {
+          provider: 'bigmodel',
+          protocol: 'anthropic-messages',
+          model: 'co-glm-5.3',
+          capabilities: {
+            toolCall: false,
+            input: { image: 'unsupported' },
+            serverTools: { imageInspect: 'supported' },
+          },
+        },
+      }),
+    })
+    await expect(planFileInputs(noToolCtx, [msg('glm-no-tools', [part('a')])])).rejects.toMatchObject({
+      code: 'capability.unavailable',
+    })
+
+    const chatProtocolCtx = createMockContext({
+      runtime: createMockRuntime({
+        senses: [ordinaryTool],
+        brain: {
+          provider: 'bigmodel',
+          protocol: 'openai-chat-completions',
+          model: 'co-glm-5.3',
+          capabilities: {
+            toolCall: true,
+            input: { image: 'unsupported' },
+            serverTools: { imageInspect: 'unsupported' },
+          },
+        },
+      }),
+    })
+    await expect(planFileInputs(chatProtocolCtx, [msg('glm-chat', [part('a')])])).rejects.toMatchObject({
+      code: 'capability.unavailable',
+    })
+  })
 })

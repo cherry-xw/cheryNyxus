@@ -89,7 +89,7 @@ Web 的“文件与上下文 → 图片适配”和 Manager 设置模块的“�
 
 观察与真实任务验证均按服务、有效协议、地址、完整地址开关、请求模型、凭据引用及解析后的凭据（`createServerToolScope`）隔离。更换任一项后不借用其他连接的记录；密钥轮换也不沿用旧记录，还可通过 `clearServerToolVerifications` 显式使指定连接的验证记录失效。数据库只保存连接摘要和工具名称、最近状态、验证结论、原因摘要及时间，不保存密钥、参数、图片、正文或结果。记录失败不改变模型执行结果，但读取失败必须显示为记录不可用，不能当作空目录。
 
-`verification.status` 取值 `'not-verified' | 'verified' | 'failed'`：`not-verified` 表示尚无当前配置完整任务验证；已观察到工具、工具 `completed`、普通连接成功和离线测试均不会自动将其改成 `verified`。只有通过 `recordServerToolTaskVerification` / `saveServerToolVerifications` 核验真实任务完成（工具 `completed`、具备非空有效结果或来源、整轮正常 `end_turn` 结束且无抓取失败错误）时才记录 `verified`；若工具明确失败或正文报告抓取失败则记录 `failed` 与原因。GLM 服务端图片输入开放仍须按[服务端工具完整流程](../../plan/server-tools-completion/README.md)的授权和条件完成。
+`verification.status` 取值 `'not-verified' | 'verified' | 'failed'`：`not-verified` 表示尚无当前配置完整任务验证；已观察到工具、工具 `completed`、普通连接成功和离线测试均不会自动将其改成 `verified`。只有通过 `recordServerToolTaskVerification` / `saveServerToolVerifications` 核验真实任务完成（工具 `completed`、具备非空有效结果或来源、整轮正常 `end_turn` 结束且无抓取失败错误）时才记录 `verified`；若工具明确失败或正文报告抓取失败则记录 `failed` 与原因。在 `anthropic-messages` 协议下，当 `serverTools.imageInspect === 'supported'` 且请求携带至少一个真实可执行工具或服务端搜索声明时，`planFileInputs` 放行服务端工具辅助看图（`targetId: 'analyze_image'`），同时保持模型原生 `input.image` 为 `unsupported`；单图且单次 `analyze_image` 完成时写入该固定版本资产观察描述，多图或多次调用无法一一对应单图时仅在 `file_input_observations` / `file_request_plans` 保存请求级观察，不误写到单张图片描述。
 
 ## 文件服务与适配器契约（`file_services`）
 
