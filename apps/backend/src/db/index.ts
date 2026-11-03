@@ -90,6 +90,15 @@ function initSoulTables(db: Database.Database): void {
       observed_at INTEGER NOT NULL,
       PRIMARY KEY (scope_id, tool_name)
     );
+    CREATE TABLE IF NOT EXISTS server_tool_verifications (
+      scope_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      capability TEXT CHECK(capability IS NULL OR capability IN ('webSearch', 'webReader', 'imageInspect')),
+      status TEXT NOT NULL CHECK(status IN ('verified', 'failed')),
+      verified_at INTEGER NOT NULL,
+      reason TEXT,
+      PRIMARY KEY (scope_id, tool_name)
+    );
   `)
   db.exec(`
     CREATE TABLE IF NOT EXISTS model_request_usage (

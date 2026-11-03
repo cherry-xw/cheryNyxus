@@ -236,17 +236,32 @@ export interface ServerToolObservation {
   observedAt: number
 }
 
+export interface ServerToolVerificationRecord {
+  name: string
+  capability?: ServerToolCapability
+  status: 'verified' | 'failed'
+  verifiedAt: number
+  reason?: string
+}
+
+export interface ServerToolVerificationSummary {
+  status: 'not-verified' | 'verified' | 'failed'
+  verifiedAt?: number
+  reason?: string
+}
+
 /** 只读能力说明；观察到调用不会自动变成完整任务验证通过。 */
 export interface BrainServiceCapabilities {
   nativeInput: Record<'image' | 'video' | 'audio' | 'pdf', CapabilityField>
   serverTools: Record<ServerToolCapability, CapabilityField>
   connectionIdentified: boolean
-  verification: { status: 'not-verified' }
+  verification: ServerToolVerificationSummary
   catalogComplete: false
   observationsTruncated: boolean
   knownTools: Array<ServerToolDefinition & {
-    sources: Array<'catalog' | 'observed'>
+    sources: Array<'catalog' | 'observed' | 'verified'>
     observation?: ServerToolObservation
+    verification?: ServerToolVerificationRecord
   }>
   /** 读取失败与没有观察记录不同。 */
   observationError?: string

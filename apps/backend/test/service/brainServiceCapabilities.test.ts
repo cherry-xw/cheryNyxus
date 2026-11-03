@@ -3,7 +3,13 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createServerToolScope, type ServerToolConnection } from '@/utils/serverToolScope.js'
 import { readBrainServiceCapabilities } from '@/service/config/brainCapabilities.js'
-import { saveServerToolObservations, listServerToolObservations } from '@/db/serverToolObservations.js'
+import {
+  saveServerToolObservations,
+  listServerToolObservations,
+  saveServerToolVerifications,
+  clearServerToolVerifications,
+  recordServerToolTaskVerification,
+} from '@/db/serverToolObservations.js'
 import { getSoulDb, closeAllDbs } from '@/db/index.js'
 import { resetModelCatalogCache } from '@/utils/modelCatalog.js'
 import { handleUtilsModelRecommendation } from '@/service/utils/handler.js'
@@ -25,6 +31,7 @@ beforeEach(() => {
   cpSync(new URL('../../.chery.template/model-catalog.yaml', import.meta.url), join(process.env.CHERY_DIR!, '.chery/model-catalog.yaml'))
   resetModelCatalogCache()
   getSoulDb().prepare('DELETE FROM server_tool_observations').run()
+  getSoulDb().prepare('DELETE FROM server_tool_verifications').run()
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('No remote calls allowed') }))
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
@@ -169,5 +176,87 @@ describe('当前连接的服务端工具观察与能力来源', () => {
       expect(next.brain.key).toBe('after-rotation')
       expect(fetch).not.toHaveBeenCalled()
     } finally { replaceRuntimeConfig(original) }
+  })
+
+  it('真实任务验证记录按连接隔离保存、更新与失效，且区分调用结束与内容抓取失败', () => {
+    const scope = createServerToolScope(connection)!
+    // 1. 中间轮 tool_use 不提前标为 verified
+    expect(
+      recordServerToolTaskVerification(scope, {
+        calls: [
+          {
+            id: 'call-1',
+            name: 'web_search_prime',
+            arguments: '{"search_query":"GLM-5.3"}',
+            executionOwner: 'server',
+            status: 'completed',
+            result: '[[{\"title\":\"GLM-5.3\",\"link\":\"https://docs.bigmodel.cn\"}]]',
+            sources: [{ url: 'https://docs.bigmodel.cn', title: 'GLM-5.3' }],
+          },
+        ],
+        finalContent: '继续读取官方页面',
+        stopReason: 'tool_use',
+        verifiedAt: 100,
+      }),
+    ).toEqual([])
+    expect(readBrainServiceCapabilities(connection).verification.status).toBe('not-verified')
+
+    // 2. 完整任务 end_turn 且有来源和有效回答时记录 verified
+    recordServerToolTaskVerification(scope, {
+      calls: [
+        {
+          id: 'call-1',
+          name: 'web_search_prime',
+          arguments: '{"search_query":"GLM-5.3"}',
+          executionOwner: 'server',
+          status: 'completed',
+          result: '[[{\"title\":\"GLM-5.3\",\"link\":\"https://docs.bigmodel.cn\"}]]',
+          sources: [{ url: 'https://docs.bigmodel.cn', title: 'GLM-5.3' }],
+        },
+      ],
+      finalContent: 'GLM-5.3 官方说明为文本模型。',
+      stopReason: 'end_turn',
+      verifiedAt: 200,
+    })
+    const verifiedView = readBrainServiceCapabilities(connection)
+    expect(verifiedView.verification).toEqual({ status: 'verified', verifiedAt: 200 })
+    expect(verifiedView.knownTools.find(tool => tool.name === 'web_search_prime')?.sources).toEqual([
+      'catalog',
+      'verified',
+    ])
+
+    // 3. 工具事件 completed 但正文报告 Failed to fetch 时记为 failed，且脱敏 URL/凭据
+    recordServerToolTaskVerification(scope, {
+      calls: [
+        {
+          id: 'call-2',
+          name: 'webReader',
+          arguments: '{}',
+          executionOwner: 'server',
+          status: 'completed',
+          result: 'Failed to fetch https://example.com/secret?token=abc123: (400) OK',
+        },
+      ],
+      finalContent: 'Failed to fetch https://example.com/secret?token=abc123: (400) OK',
+      stopReason: 'end_turn',
+      verifiedAt: 300,
+    })
+    const failedView = readBrainServiceCapabilities(connection)
+    expect(failedView.verification.status).toBe('failed')
+    expect(failedView.verification.reason).toContain('抓取失败')
+    const dbRows = JSON.stringify(getSoulDb().prepare('SELECT * FROM server_tool_verifications').all())
+    expect(dbRows).not.toContain(connection.key)
+    expect(dbRows).not.toContain('token=abc123')
+
+    // 4. 连接字段或密钥变更不沿用已验证状态；显式失效可清除记录
+    expect(readBrainServiceCapabilities({ ...connection, key: 'rotated-key' }).verification.status).toBe(
+      'not-verified',
+    )
+    saveServerToolVerifications(scope, [
+      { name: 'webReader', capability: 'webReader', status: 'verified', verifiedAt: 400 },
+    ])
+    expect(readBrainServiceCapabilities(connection).verification.status).toBe('verified')
+    clearServerToolVerifications(scope)
+    expect(readBrainServiceCapabilities(connection).verification.status).toBe('not-verified')
   })
 })

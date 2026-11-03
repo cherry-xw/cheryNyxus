@@ -31,6 +31,18 @@ const statuses: Record<ServerToolObservation['status'], string> = {
   failed: '明确失败',
   unknown: '结果未知',
 }
+const sourceLabels = {
+  catalog: '目录说明',
+  observed: '此配置已观察到',
+  verified: '此配置已验证',
+} as const
+const verificationLabel = computed(() => {
+  if (state.value.kind !== 'ready') return '只读 · 当前配置尚未验证'
+  const status = state.value.value.verification.status
+  if (status === 'verified') return '只读 · 当前配置已验证'
+  if (status === 'failed') return '只读 · 当前配置验证未通过'
+  return '只读 · 当前配置尚未验证'
+})
 function capabilityText(field: CapabilityField): string {
   return `${sources[field.source]} · ${states[field.state]}`
 }
@@ -45,7 +57,7 @@ function capabilityText(field: CapabilityField): string {
           tip="模型服务自带的工具，来源为本地模型目录说明与已记录的调用。仅点击刷新才读取，不向模型服务查询工具、不调用模型、不收费、不保存草稿。调用结束不证明内容任务成功。"
         />
       </h3>
-      <small>只读 · 当前配置尚未验证</small>
+      <small>{{ verificationLabel }}</small>
       <el-button size="small" class="section-action" :disabled="refreshDisabled" @click="refresh">{{
         state.kind === 'loading' ? '正在读取' : '刷新'
       }}</el-button>
@@ -72,6 +84,9 @@ function capabilityText(field: CapabilityField): string {
         <p v-if="!state.value.connectionIdentified" class="capability-note">
           连接信息尚不完整，无法匹配此配置的观察记录。
         </p>
+        <p v-if="state.value.verification.reason" class="capability-note">
+          验证说明：{{ state.value.verification.reason }}
+        </p>
         <p v-if="state.value.observationError" class="capability-error" role="alert">
           {{ state.value.observationError }}
         </p>
@@ -96,7 +111,7 @@ function capabilityText(field: CapabilityField): string {
             <div class="tool-meta">
               <span>{{
                 tool.sources
-                  .map((source) => (source === 'catalog' ? '目录说明' : '此配置已观察到'))
+                  .map((source) => sourceLabels[source])
                   .join(' / ')
               }}</span>
               <template v-if="tool.observation">
@@ -104,6 +119,13 @@ function capabilityText(field: CapabilityField): string {
                 <time :datetime="new Date(tool.observation.observedAt).toISOString()">{{
                   new Date(tool.observation.observedAt).toLocaleString()
                 }}</time>
+              </template>
+              <template v-if="tool.verification">
+                <span>{{
+                  tool.verification.status === 'verified'
+                    ? '任务验证通过'
+                    : `任务验证未通过${tool.verification.reason ? `：${tool.verification.reason}` : ''}`
+                }}</span>
               </template>
             </div>
             <p v-if="tool.description">{{ tool.description }}</p>

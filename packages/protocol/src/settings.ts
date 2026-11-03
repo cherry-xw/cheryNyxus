@@ -206,14 +206,27 @@ export const SettingsModelRecommendationBodySchema = z.object({
 const recommendation = z.object({ provider: z.string().optional(), protocol: protocol.optional(),
   contextLimit: z.number().positive().optional(), thinking: z.string().min(1).optional(), capabilities: SettingsCatalogCapabilitiesSchema.optional() }).strict()
 const capabilityField = z.object({ state: z.enum(CAPABILITY_STATES), source: z.enum(['user', 'catalog', 'adapter', 'default']) }).strict()
+const serverToolVerificationRecord = z.object({
+  name: z.string().min(1),
+  capability: z.enum(['webSearch', 'webReader', 'imageInspect']).optional(),
+  status: z.enum(['verified', 'failed']),
+  verifiedAt: z.number().int().nonnegative(),
+  reason: z.string().optional(),
+}).strict()
 export const BrainServiceCapabilitiesSchema = z.object({
   nativeInput: z.object({ image: capabilityField, video: capabilityField, audio: capabilityField, pdf: capabilityField }).strict(),
   serverTools: z.object({ webSearch: capabilityField, webReader: capabilityField, imageInspect: capabilityField }).strict(),
-  connectionIdentified: z.boolean(), verification: z.object({ status: z.literal('not-verified') }).strict(),
+  connectionIdentified: z.boolean(),
+  verification: z.object({
+    status: z.enum(['not-verified', 'verified', 'failed']),
+    verifiedAt: z.number().int().nonnegative().optional(),
+    reason: z.string().optional(),
+  }).strict(),
   catalogComplete: z.literal(false), observationsTruncated: z.boolean(), observationError: z.string().optional(),
   knownTools: z.array(z.object({ name: z.string().min(1), description: z.string().optional(), documentationUrl: z.string().optional(),
-    sources: z.array(z.enum(['catalog', 'observed'])),
+    sources: z.array(z.enum(['catalog', 'observed', 'verified'])),
     observation: z.object({ name: z.string().min(1), status: z.enum(['started', 'completed', 'failed', 'unknown']), observedAt: z.number().int().nonnegative() }).strict().optional(),
+    verification: serverToolVerificationRecord.optional(),
   }).strict()),
 }).strict()
 export const SettingsModelRecommendationResultSchema = z.object({

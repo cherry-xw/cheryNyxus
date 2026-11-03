@@ -85,11 +85,11 @@ Web 的“文件与上下文 → 图片适配”和 Manager 设置模块的“�
 
 `utils.modelRecommendation` 可携带 `connection`（当前草稿的地址、密钥引用及完整地址开关），返回 `serviceCapabilities`；`config_manage.get` 使用同一查询生成各大脑的能力说明。查询只读，不测试连接、不请求模型、不发现 MCP 工具。
 
-原生媒体及服务端能力的目录值保留来源，不代表当前连接已经验证。`knownTools` 分开记录目录说明和当前连接响应中观察到的真实名称；`catalogComplete=false` 表示完整列表未知，不把 MCP 列表混入模型服务目录。目录可以通过 `capabilities.serverToolDefinitions` 提供名称、说明和文档链接；不从调用参数猜输入结构。
+原生媒体及服务端能力的目录值保留来源，不代表当前连接已经验证。`knownTools` 分开记录目录说明（`catalog`）、当前连接响应中观察到的真实名称（`observed`）与真实任务验证通过的能力（`verified`）；`catalogComplete=false` 表示完整列表未知，不把 MCP 列表混入模型服务目录。目录可以通过 `capabilities.serverToolDefinitions` 提供名称、说明和文档链接；不从调用参数猜输入结构。
 
-观察按服务、有效协议、地址、完整地址开关、请求模型、凭据引用及解析后的凭据隔离。更换任一项后不借用其他连接的记录；密钥轮换也不沿用旧记录。数据库只保存连接摘要和工具名称、最近状态及时间，不保存密钥、参数、图片、正文或结果。记录失败不改变模型执行结果，但读取失败必须显示为记录不可用，不能当作空目录。
+观察与真实任务验证均按服务、有效协议、地址、完整地址开关、请求模型、凭据引用及解析后的凭据（`createServerToolScope`）隔离。更换任一项后不借用其他连接的记录；密钥轮换也不沿用旧记录，还可通过 `clearServerToolVerifications` 显式使指定连接的验证记录失效。数据库只保存连接摘要和工具名称、最近状态、验证结论、原因摘要及时间，不保存密钥、参数、图片、正文或结果。记录失败不改变模型执行结果，但读取失败必须显示为记录不可用，不能当作空目录。
 
-`verification.status=not-verified` 表示尚无当前配置完整任务验证；已观察到工具、工具 `completed`、普通连接成功和离线测试均不会将其改成验证通过。真实任务验证与 GLM 服务端图片输入开放仍须按[服务端工具完整流程](../../plan/server-tools-completion/README.md)的授权和条件完成。
+`verification.status` 取值 `'not-verified' | 'verified' | 'failed'`：`not-verified` 表示尚无当前配置完整任务验证；已观察到工具、工具 `completed`、普通连接成功和离线测试均不会自动将其改成 `verified`。只有通过 `recordServerToolTaskVerification` / `saveServerToolVerifications` 核验真实任务完成（工具 `completed`、具备非空有效结果或来源、整轮正常 `end_turn` 结束且无抓取失败错误）时才记录 `verified`；若工具明确失败或正文报告抓取失败则记录 `failed` 与原因。GLM 服务端图片输入开放仍须按[服务端工具完整流程](../../plan/server-tools-completion/README.md)的授权和条件完成。
 
 ## 文件服务与适配器契约（`file_services`）
 

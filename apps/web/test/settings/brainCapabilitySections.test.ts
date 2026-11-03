@@ -371,6 +371,22 @@ describe('大脑详情字段组件（离线交互检查，不是浏览器或视�
     expect(wrapper.text()).toContain('调用已结束')
     expect(wrapper.text()).toContain('完整列表未知')
     expect(wrapper.text()).not.toContain('能力验证成功')
+    const verifiedResponse = result()
+    verifiedResponse.serviceCapabilities!.verification = { status: 'verified', verifiedAt: 2 }
+    verifiedResponse.serviceCapabilities!.knownTools = [
+      {
+        name: 'web_search_prime',
+        sources: ['catalog', 'verified'],
+        description: '搜索记录',
+        verification: { name: 'web_search_prime', status: 'verified', verifiedAt: 2 },
+      },
+    ]
+    api.getModelRecommendation.mockResolvedValueOnce(verifiedResponse)
+    await wrapper.findComponent(ElButton).trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('当前配置已验证')
+    expect(wrapper.text()).toContain('此配置已验证')
+    expect(wrapper.text()).toContain('任务验证通过')
     expect(api.testConnection).not.toHaveBeenCalled()
     expect(api.saveConfig).not.toHaveBeenCalled()
   })
