@@ -163,7 +163,9 @@ function extractSourcesFromParsed(value: unknown, out: ServerToolSource[]): void
         ? { snippet: sanitizeServerToolText(rec.content).slice(0, 240) }
         : typeof rec.snippet === 'string' && rec.snippet
           ? { snippet: sanitizeServerToolText(rec.snippet).slice(0, 240) }
-          : {}),
+          : typeof rec.encrypted_content === 'string' && rec.encrypted_content
+            ? { snippet: sanitizeServerToolText(rec.encrypted_content).slice(0, 240) }
+            : {}),
       ...(typeof rec.refer === 'string' && rec.refer ? { refer: sanitizeServerToolText(rec.refer) } : {}),
     })
   }
@@ -867,7 +869,7 @@ const anthropicSenseAdapterConfig: SenseAdapter<AnthropicResponse> = {
       out.push({
         index,
         id: b.id,
-        name: b.name,
+        name: b.name === 'WebFetch' ? 'web_fetch' : b.name,
         arguments: JSON.stringify(b.input ?? {}),
       })
     }
@@ -891,7 +893,7 @@ const anthropicSenseAdapterConfig: SenseAdapter<AnthropicResponse> = {
           {
             index: ev.index,
             id: cb.id,
-            name: cb.name,
+            name: cb.name === 'WebFetch' ? 'web_fetch' : cb.name,
             arguments: hasInitialInput ? JSON.stringify(cb.input) : '',
           },
         ]
@@ -920,7 +922,9 @@ function isGlmModel(model: string): boolean {
 }
 
 /** OpenAI 形状 → Anthropic tool 形状（chat() 内调用）。
- *  若当前模型为 GLM Messages 且角色开启了 web_search，转换或保留服务端搜索声明 web_search_20250305。 */
+ *  若当前模型为 GLM Messages：
+ *  - 开启了 web_search 时转换为服务端搜索声明 web_search_20250305
+ *  - 开启了真实本地 web_fetch 时映射为 WebFetch（以触发 GLM 服务端 webReader，返回 tool_use 时还原为 web_fetch） */
 function transformSensesToAnthropic(senses: SenseFunction[], model?: string): AnthropicTool[] {
   const useServerSearch = model ? isGlmModel(model) : false
   return senses.map((s) => {
@@ -928,6 +932,13 @@ function transformSensesToAnthropic(senses: SenseFunction[], model?: string): An
       return {
         type: 'web_search_20250305',
         name: 'web_search',
+      }
+    }
+    if (useServerSearch && s.function.name === 'web_fetch') {
+      return {
+        name: 'WebFetch',
+        description: s.function.description,
+        input_schema: s.function.parameters as AnthropicTool['input_schema'],
       }
     }
     return {

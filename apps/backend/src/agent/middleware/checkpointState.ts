@@ -213,10 +213,10 @@ export class CheckpointState {
             this.thinkingBlockAssembler.push(op)
             if (op.kind === 'start') {
               this.thinkingIndices.set(op.index, this.thinkingIndices.get(op.index) ?? '')
-            } else if (op.kind === 'thinking_delta') {
+            } else if (op.kind === 'text') {
               this.thinkingIndices.set(
                 op.index,
-                (this.thinkingIndices.get(op.index) ?? '') + op.thinking,
+                (this.thinkingIndices.get(op.index) ?? '') + op.text,
               )
             }
           }

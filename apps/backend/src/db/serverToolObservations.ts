@@ -170,6 +170,19 @@ export function recordServerToolTaskVerification(
   for (const call of input.calls) {
     if (call.status === 'skipped-local' || !VALID_TOOL_NAME.test(call.name)) continue
     const capability = inferServerToolCapability(call.name, call.arguments)
+    // OpenAI Responses uses `web_search_call` for both search and open_page; internal open_page
+    // events do not embed page body text in the tool item itself, so do not overwrite or fail
+    // `web_search_call` when an `open_page` step lacks `result` text unless fetch explicitly failed.
+    if (
+      call.name === 'web_search_call' &&
+      capability === 'webReader' &&
+      call.status === 'completed' &&
+      !call.error &&
+      !contentFetchFailed &&
+      !/Failed to fetch\b/i.test(call.result ?? '')
+    ) {
+      continue
+    }
     const hasSources = Array.isArray(call.sources) && call.sources.length > 0
     const resultText = call.result?.trim() ?? ''
     const resultFetchFailed = /Failed to fetch\b/i.test(resultText)
@@ -202,7 +215,7 @@ export function recordServerToolTaskVerification(
       capability === 'webSearch'
         ? hasSources || Boolean(resultText)
         : capability === 'webReader'
-          ? Boolean(resultText) || hasSources
+          ? Boolean(resultText)
           : Boolean(resultText) || hasSources
 
     if (!normalStop) {

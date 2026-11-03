@@ -298,17 +298,17 @@ OpenAI 官方网页本次返回 HTTP 403，搜索服务返回 401；没有把这
 
 | 位置与关键符号 | 已有行为 | 待补内容 |
 | --- | --- | --- |
-| [`anthropic.ts`](../../../apps/backend/src/agent/provider/anthropic.ts)、[`openaiResponses.ts`](../../../apps/backend/src/agent/provider/openaiResponses.ts) | 已分开解析服务端调用、结果与普通调用；支持搜索声明转换 | 真实产品请求、多轮与异常完整流程待验收 |
-| `anthropicStreamSSE`、`extractSenseCallDeltas` | 按 block index 分开服务端与普通调用参数；脱敏离线事件覆盖交错、错误与孤立结果 | 真实产品异常与完整多轮仍待验证 |
-| [`core/message/adapter.ts`](../../../apps/backend/src/core/message/adapter.ts) `LLMResponse`、`MessageProviderAdapterConfig` | 已有独立 `serverToolCalls`、`turnSegments`、`ProtectedServerToolContinuation` 与增量接口 | 真实网关多轮续接实测待 SC04 执行 |
-| [`chat.ts`](../../../apps/backend/src/agent/middleware/chat.ts)、[`checkpointState.ts`](../../../apps/backend/src/agent/middleware/checkpointState.ts) | 服务端增量合并、`turnSegments` / `senseCallIndices` 块序累积、受保护原始续接 `serverToolContinuation` 与脱敏展示分离已接通 | 真实产品完整多轮待 SC04 验证 |
+| [`anthropic.ts`](../../../apps/backend/src/agent/provider/anthropic.ts)、[`openaiResponses.ts`](../../../apps/backend/src/agent/provider/openaiResponses.ts) | 已分开解析服务端调用、结果与普通调用；支持搜索声明转换与 GLM `web_fetch` → `WebFetch` 映射还原；支持标准 `web_search_tool_result.encrypted_content` 摘要提取 | 已完成离线与真实产品多轮验证 |
+| `anthropicStreamSSE`、`extractSenseCallDeltas` | 按 block index 分开服务端与普通调用参数；脱敏离线事件覆盖交错、错误与孤立结果 | 已完成离线与真实产品多轮验证 |
+| [`core/message/adapter.ts`](../../../apps/backend/src/core/message/adapter.ts) `LLMResponse`、`MessageProviderAdapterConfig` | 已有独立 `serverToolCalls`、`turnSegments`、`ProtectedServerToolContinuation` 与增量接口 | 已完成真实网关多轮续接实测（SC04） |
+| [`chat.ts`](../../../apps/backend/src/agent/middleware/chat.ts)、[`checkpointState.ts`](../../../apps/backend/src/agent/middleware/checkpointState.ts) | 服务端增量合并、`turnSegments` / `senseCallIndices` 块序累积、受保护原始续接 `serverToolContinuation` 与脱敏展示分离已接通 | 已完成真实产品完整多轮验证（SC04） |
 | [`fileInputPlanning.ts`](../../../apps/backend/src/agent/middleware/fileInputPlanning.ts) `planFileInputs` | 按原生媒体支持、本地映射工具，或在 `anthropic-messages` + `serverTools.imageInspect === 'supported'` 且请求携带至少一个真实工具定义/服务端搜索时放行服务端辅助看图（`targetId: 'analyze_image'`），保持模型原生 `input.image` 为 `unsupported` | 已完成离线与真实产品链路验证 |
 | [`imageContext.ts`](../../../apps/backend/src/service/fileServices/imageContext.ts)、[`inputObservations.ts`](../../../apps/backend/src/service/fileServices/inputObservations.ts) | 单图且唯一 `analyze_image` 完成时写入该固定版本资产观察描述；多图或多次调用无法一一对应单图时仅保存请求级观察 `recordRequestServerImageObservation`；沿用默认 1 用户轮保留、过期降级描述与显式重读恢复 | 已完成离线与真实产品链路验证 |
-| [`db/message.ts`](../../../apps/backend/src/db/message.ts)、[`observer.ts`](../../../apps/backend/src/service/chat/observer.ts) | `provider_continuation` 分开保存脱敏展示 `serverToolCalls`、块序与受保护原始续接 `serverToolContinuation`；切换供应商不回放他方私有块 | 真实多轮实测待 SC04 验收 |
-| [`types.ts`](../../../apps/backend/src/core/middleware/types.ts)、[`timeline.ts`](../../../packages/protocol/src/timeline.ts) | 已传递执行归属、状态、结果、来源与统一块序投影 | 跨端完整恢复待 SC05 用户验收 |
+| [`db/message.ts`](../../../apps/backend/src/db/message.ts)、[`observer.ts`](../../../apps/backend/src/service/chat/observer.ts) | `provider_continuation` 分开保存脱敏展示 `serverToolCalls`、块序与受保护原始续接 `serverToolContinuation`；切换供应商不回放他方私有块 | 已完成真实多轮与跨厂商回放抑制验证（SC04） |
+| [`types.ts`](../../../apps/backend/src/core/middleware/types.ts)、[`timeline.ts`](../../../packages/protocol/src/timeline.ts) | 已传递执行归属、状态、结果、来源与统一块序投影 | 跨端完整恢复待 SC05 用户界面验收 |
 | [`SenseCallBox.vue`](../../../apps/web/src/features/agent/chat/SenseCallBox.vue)、[`BrainServerTools.vue`](../../../apps/web/src/features/agent/settings/tabs/brain/BrainServerTools.vue) | 工具卡隐藏本地操作；设置按需只读展示能力来源、目录说明、此连接观察记录与真实任务验证状态，支持刷新 | 用户界面验收待 SC05 执行 |
-| [`modelCatalog.ts`](../../../apps/backend/src/utils/modelCatalog.ts)、[`brainCapabilities.ts`](../../../apps/backend/src/service/config/brainCapabilities.ts) `readBrainServiceCapabilities` | 区分原生媒体、按协议推荐的 `serverTools`、目录工具说明、已观察记录与真实任务验证记录（`not-verified / verified / failed`）；Web/AI 共用读取；目录附加说明不写入大脑配置 | 型号推荐与已观察调用均不自动变成验证通过；真实网关验证结果待 SC03/SC04 跑通后写入 |
-| [`serverToolScope.ts`](../../../apps/backend/src/utils/serverToolScope.ts)、[`serverToolObservation.ts`](../../../apps/backend/src/agent/provider/serverToolObservation.ts)、[`serverToolObservations.ts`](../../../apps/backend/src/db/serverToolObservations.ts) | 按服务商/有效协议/地址/完整 URL/模型/凭据引用及实际凭据隔离；分别持久化观察记录（`server_tool_observations`）与真实任务验证记录（`server_tool_verifications`），支持连接变更自动失效与显式清除 | 真实网关多轮验证记录待 SC03/SC04 执行 |
+| [`modelCatalog.ts`](../../../apps/backend/src/utils/modelCatalog.ts)、[`brainCapabilities.ts`](../../../apps/backend/src/service/config/brainCapabilities.ts) `readBrainServiceCapabilities` | 区分原生媒体、按协议推荐的 `serverTools`、目录工具说明、已观察记录与真实任务验证记录（`not-verified / verified / failed`）；Web/AI 共用读取；目录附加说明不写入大脑配置 | 已完成离线与真实网关验证（SC01/SC03/SC04） |
+| [`serverToolScope.ts`](../../../apps/backend/src/utils/serverToolScope.ts)、[`serverToolObservation.ts`](../../../apps/backend/src/agent/provider/serverToolObservation.ts)、[`serverToolObservations.ts`](../../../apps/backend/src/db/serverToolObservations.ts) | 按服务商/有效协议/地址/完整 URL/模型/凭据引用及实际凭据隔离；分别持久化观察记录（`server_tool_observations`）与真实任务验证记录（`server_tool_verifications`），支持连接变更自动失效与显式清除 | 已完成离线与真实网关多轮验证（SC01/SC03/SC04） |
 | [`loader.ts`](../../../apps/backend/src/core/mcp/loader.ts) `buildSensesForServer`、`refreshMcpServerTools` | 已支持 `listTools` `nextCursor` 分页、`notifications/tools/list_changed` 刷新及刷新失败保留旧列表并标记 `stale: true` | 已完成离线验证 |
 
 权威说明归属：模型与文件选择见[模型能力](../../backend/agent/model-capabilities.md)，Provider 见[协议适配](../../backend/agent/provider.md)，消息契约见[Core 消息](../../backend/core/message.md)，MCP 见[MCP 接入](../../backend/core/mcp.md)，Web 见[工具渲染](../../frontend/renderer.md)。实施改变这些事实前先同步相应说明，本文不提前把设计写成已实现行为。
@@ -400,9 +400,9 @@ OpenAI 官方网页本次返回 HTTP 403，搜索服务返回 401；没有把这
 | S2 | 确定服务端事件、能力来源、历史回传契约 | 更新权威说明；明确下面两种结构调整方式 | 已确认（使用一方案：保留本地执行结构，新增服务端记录） |
 | S3 | Provider 解析、累积、保存与恢复 | 服务端事件不触发本地执行；流式/非流式/混合调用一致 | 已完成（SC02）：完整块序 `turnSegments` 与受保护原始续接 `serverToolContinuation` 已接通 |
 | S4 | 图片输入选择、分析关联、保留与重读 | 原生与服务入口能力不混用；多图/过期/重启正确 | 已完成（SC03）：满足触发条件时放行服务端辅助看图，区分单图资产描述与多图请求级观察，通过真实产品链路验证 |
-| S5 | Web 结果展示、设置能力来源与已知工具目录 | 用户看清谁执行、是否完成、目录是否完整；不重复展示和伪造可用性 | 工具卡、设置能力来源/已知目录及连接观察已有实现；当前始终“尚未验证”，真实任务验证管理未完成，界面待用户验收 |
-| S6 | 搜索与网页读取验证，必要时补 MCP 发现能力 | 真实确认名称、参数、结果、错误；发现列表与 Messages 能力分开 | GLM 独立网页读取、专用搜索、真实结果交付主会话通过；GPT Responses `web_search`（Codex 配置重试）搜索通过，open_page 事件通过但抓取失败；产品代码已接通声明与解析；真实多轮待新额度 |
-| S7 | 需求逐项核对后集中验证、更新使用说明 | 下方验收项完成，未验证项明确保留 | 离线测试与构建已完成，真实额度与人工界面验收待执行 |
+| S5 | Web 结果展示、设置能力来源与已知工具目录 | 用户看清谁执行、是否完成、目录是否完整；不重复展示和伪造可用性 | 已完成（SC01）：工具卡、设置能力来源/已知目录、连接观察与真实任务验证管理已实现，界面展示待 SC05 用户验收 |
+| S6 | 搜索与网页读取验证，必要时补 MCP 发现能力 | 真实确认名称、参数、结果、错误；发现列表与 Messages 能力分开 | 已完成（SC02/SC04）：GLM 搜索→正文读取→最终回答多轮闭环、GPT Responses 严格工具定义图片+搜索+多轮历史重放、以及 MCP 目录分页与过期保留均已验证通过 |
+| S7 | 需求逐项核对后集中验证、更新使用说明 | 下方验收项完成，未验证项明确保留 | SC01—SC04 代码、离线测试与真实模型验证已全部完成；仅剩 SC05 用户人工界面验收 |
 
 ### 存量契约改动方式：已确认决定
 

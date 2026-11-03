@@ -620,7 +620,7 @@ extractSenseCallDeltas(chunk):
 
 **服务端内置工具（`server_tool_use` / `tool_result` 与 Responses `web_search_call`）：**
 
-- **Anthropic Messages**：解析非流式与流式的 `server_tool_use`、`tool_result`、`web_search_tool_result` 及 `usage.server_tool_use.web_search_requests`，生成独立的 `ServerToolCallInfo`（`executionOwner: 'server'`），不进入本地 `senseMiddleware` 调度或审批。当同一响应已由服务端工具完成（`status: 'completed'`）且 `stop_reason === 'end_turn'` 时，伴随的普通工具调用（如 `WebFetch`）不在本地重复执行，转为服务端工具展示记录。GLM 系列在 Messages 协议下启用 `web_search` 时，工具声明转换为 `{ type: 'web_search_20250305', name: 'web_search' }`。
+- **Anthropic Messages**：解析非流式与流式的 `server_tool_use`、`tool_result`、`web_search_tool_result`（含 `encrypted_content` 摘要提取）及 `usage.server_tool_use.web_search_requests`，生成独立的 `ServerToolCallInfo`（`executionOwner: 'server'`），不进入本地 `senseMiddleware` 调度或审批。当同一响应已由服务端工具完成（`status: 'completed'`）且 `stop_reason === 'end_turn'` 时，伴随的普通工具调用（如 `WebFetch`）不在本地重复执行，转为服务端工具展示记录。GLM 系列在 Messages 协议下启用 `web_search` 时，工具声明转换为 `{ type: 'web_search_20250305', name: 'web_search' }`；启用真实本地 `web_fetch` 时，请求侧工具声明映射为 `WebFetch` 以触发网关内置 `webReader`，若响应仍返回普通 `tool_use(name="WebFetch")` 则在解析层还原为 `web_fetch` 走既有本地授权与执行。
 - **OpenAI Responses**：GPT 系列在 Responses 协议下启用 `web_search` 时，工具声明转换为 `{ type: 'web_search', external_web_access: true }`（不附带 `max_tool_calls`）；解析 `web_search_call`（`search`、`open_page`、`find_in_page`）与消息 `url_citation` 注释为 `ServerToolCallInfo`。
 - **历史回传隔离**：`buildMessages`（Anthropic / OpenAI Responses）仅将本地 `senseCalls` 构造为 `tool_use` / `function_call`；保存在 `provider_continuation.serverToolCalls` 中的服务端工具展示记录不伪造为普通本地工具调用回传给模型。
 - **展示数据保护**：服务端参数、结果和来源中的嵌套对象、数组、JSON 字符串及正文链接均去除凭据与 Base64 图片内容；断流留下的部分参数也需脱敏。此副本只用于保存和展示，不替代供应商需要的受保护续接数据。

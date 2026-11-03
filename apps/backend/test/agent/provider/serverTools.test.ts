@@ -135,6 +135,67 @@ describe('服务端工具展示数据保护', () => {
   it('保留没有凭据的普通文字，不把非 JSON 结果当成解析失败', () => {
     expect(formatAnthropicServerToolResult('原始网页正文')).toEqual({ text: '原始网页正文' })
   })
+
+  it('从 Anthropic 标准 web_search_tool_result 的 encrypted_content 提取搜索摘要与来源', () => {
+    const formatted = formatAnthropicServerToolResult([
+      {
+        type: 'web_search_result',
+        title: 'GLM-5.3 - 智谱AI开放文档',
+        url: 'https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3',
+        encrypted_content: 'GLM-5.3 是智谱最新旗舰模型，目前仅支持处理文本模态信息。',
+        page_age: null,
+      },
+    ])
+    expect(formatted.sources).toEqual([
+      {
+        url: 'https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3',
+        title: 'GLM-5.3 - 智谱AI开放文档',
+        snippet: 'GLM-5.3 是智谱最新旗舰模型，目前仅支持处理文本模态信息。',
+      },
+    ])
+  })
+
+  it('GLM Messages 将本地 web_fetch 映射为 WebFetch 触发 webReader，并在返回普通 tool_use 时还原为 web_fetch', () => {
+    const senseAdapter = getSenseAdapter('anthropic')!
+    const raw = {
+      id: 'msg-webfetch',
+      content: [
+        {
+          type: 'tool_use' as const,
+          id: 'call_wf_1',
+          name: 'WebFetch',
+          input: { url: 'https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3' },
+        },
+      ],
+    }
+    expect(senseAdapter.senseCalls(raw as never)).toEqual([
+      {
+        index: 0,
+        id: 'call_wf_1',
+        name: 'web_fetch',
+        arguments: '{"url":"https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3"}',
+      },
+    ])
+    expect(
+      senseAdapter.extractSenseCallDeltas({
+        type: 'content_block_start',
+        index: 1,
+        content_block: {
+          type: 'tool_use',
+          id: 'call_wf_2',
+          name: 'WebFetch',
+          input: { url: 'https://example.com' },
+        },
+      }),
+    ).toEqual([
+      {
+        index: 1,
+        id: 'call_wf_2',
+        name: 'web_fetch',
+        arguments: '{"url":"https://example.com"}',
+      },
+    ])
+  })
 })
 
 describe('Anthropic 服务端异常与流式分流', () => {

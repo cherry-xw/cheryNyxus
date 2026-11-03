@@ -258,5 +258,36 @@ describe('当前连接的服务端工具观察与能力来源', () => {
     expect(readBrainServiceCapabilities(connection).verification.status).toBe('verified')
     clearServerToolVerifications(scope)
     expect(readBrainServiceCapabilities(connection).verification.status).toBe('not-verified')
+
+    // 5. OpenAI Responses 同一响应内先 search 后 open_page 时，不带正文 result 的内部 open_page 步骤不会误把 web_search_call 标为失败
+    recordServerToolTaskVerification(scope, {
+      calls: [
+        {
+          id: 'ws-1',
+          name: 'web_search_call',
+          arguments: '{"type":"search","query":"GLM-5.3"}',
+          executionOwner: 'server',
+          status: 'completed',
+          sources: [{ url: 'https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3', title: 'GLM-5.3' }],
+        },
+        {
+          id: 'ws-2',
+          name: 'web_search_call',
+          arguments: '{"type":"open_page","url":"https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3"}',
+          executionOwner: 'server',
+          status: 'completed',
+          sources: [{ url: 'https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3' }],
+        },
+      ],
+      finalContent: 'GLM-5.3 仅支持文本输入。',
+      stopReason: 'completed',
+      verifiedAt: 500,
+    })
+    const gptView = readBrainServiceCapabilities(connection)
+    expect(gptView.verification).toEqual({ status: 'verified', verifiedAt: 500 })
+    expect(gptView.knownTools.find(tool => tool.name === 'web_search_call')?.verification).toMatchObject({
+      status: 'verified',
+      capability: 'webSearch',
+    })
   })
 })
