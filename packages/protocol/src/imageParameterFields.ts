@@ -97,7 +97,7 @@ export function imageParameterFields(adapter: string, model = ''): Record<string
     if (model !== 'image-01-live') delete fields.style
   }
   if (adapter.startsWith('openai-')) {
-    const modern = /^gpt-image-2\.5-(sunburst|flare)$/.test(model)
+    const modern = /^gpt-image-2\.5(?:-(?:sunburst|flare))?$/.test(model)
     if (!modern) { fields.size!.enum = ['auto', '1024x1024', '1536x1024', '1024x1536']; fields.quality!.enum = ['low', 'medium', 'high', 'auto'] }
     if (modern || model === 'gpt-image-2' || model === 'gpt-image-1-mini') delete fields.input_fidelity
   }

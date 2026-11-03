@@ -25,7 +25,7 @@
 | 编号 / 小任务 | 状态 | 复杂度及依据 | 依赖、下一步与完成条件 |
 | --- | --- | --- | --- |
 | ID01 Imagen 破坏性移除 | 已完成 | 4：跨协议、目录、执行器与审计快照同步 | 官方 Gemini API Imagen 已关闭且 Vertex AI `imagen-4.0-*-001` 于 2026-06-30 退役；用户选择方案 1A 破坏性移除 `google-imagen` 适配器与 `google-imagen-4` 目录项，仅保留五类有效 HTTP 图片适配器 |
-| [ID02 各厂商文件服务真实验证](design.md#4-剩余验收矩阵) | 进行中 | 4：同厂商不同接口不等同 | 已在 `https://ai.xcherry.top` 完成 `openai-images`（`gpt-image-2`）与 `openai-responses-image`（`gpt-5.6-sol` + `image_model: gpt-image-2`，并移除上游不支持的 `max_tool_calls`）真实生成与编辑验证；`google-gemini-image`、`minimax-images`、`doubao-seedream` 因当前网关未暴露原生端点（404 或转写为空 parts），待具备直连厂商入口时补验 |
+| [ID02 各厂商文件服务真实验证](design.md#4-剩余验收矩阵) | 进行中 | 4：同厂商不同接口不等同 | 已在 `https://ai.xcherry.top` 与 MiniMax 官方入口完成 `openai-images`（`gpt-image-2`、`gpt-image-2.5`、`image-01`、`image-01-live`）、`openai-responses-image`（`gpt-5.6-sol` + `image_model: gpt-image-2`）、`minimax-images`（`image-01`、`image-01-live` 生成与人物参考）及 `google-gemini-image`（`gemini-3.1-flash-image`、`gemini-3-pro-image` 生成与编辑，含复用 `/v1` 大脑连接）真实生成与多轮定稿验证；仅剩 `doubao-seedream` 待火山方舟渠道接入后补验 |
 | ID03 多轮绘图与用户选图 | 已完成 | 4：固定候选、反馈、定稿和多窗 | 已通过真实服务完成首轮多图请求（`desiredCount: 2` 网关返回 1 张触发 `partial` 保留有效候选且不自动重画）→ 选中候选反馈编辑（`image.edit`）→ 生成新候选 → 用户定稿（`selectionRevision=1`）→ 同 `requestId` 幂等重试（200）→ 过期版本双窗冲突（409 `file.state_conflict`）→ 定稿后第 3 轮继续生成不覆盖已有 `finalCandidateId`，证据存于 [verify/live-evidence-20261102.json](verify/live-evidence-20261102.json) |
 | [ID04 GLM/GPT/MiniMax 图片产品验证](design.md#5-共享流程与恢复要求) | 阻塞 | 4：局部请求不等于完整角色运行 | 服务端工具路径归[对应任务](../server-tools-completion/README.md) `SC01`—`SC04`。本项接手 MiniMax 完整角色与生产一轮策略、图片准确性及一般混合输入/联合理解；既有三次携图描述不重测、不扩大结论 |
 | ID05 首次绘图查询 400 定位与修复 | 已完成 | 3：跨所有者会话权限状态码映射 | 定位生产数据库 `minimax预设` 最新根会话 `fileOwnerId` 为 `cherynyxus-qq-module`，浏览器以 `manager-internal` 查询 `POST /api/file-services/drawings` 时 `fileAccessForChat` 抛无 `code` 异常被映射为 400 `file.operation_rejected`；已为跨所有者拒绝附加 `code: 'EACCES'`，明确返回 403 `file.permission_denied` |
@@ -40,9 +40,9 @@
 
 ## 当前恢复检查点
 
-已完成 `ID01`（破坏性移除 `google-imagen`）、`ID05`（跨所有者会话绘图查询返回 403 `file.permission_denied`）、`ID03`（基于真实网关的多轮绘图、部分产出保留、选图编辑、用户定稿、409 冲突拦截与定稿后继续生成保留原定稿）以及 `ID02` 中当前网关支持的 `openai-images` / `openai-responses-image` 实测（脚本 [verify/run-live-verification.mts](verify/run-live-verification.mts)，证据 [verify/live-evidence-20261102.json](verify/live-evidence-20261102.json)），生产容器 `cherynyxus-backend-1` 已核实安装 Sharp `0.35.5`。
+已完成 `ID01`（破坏性移除 `google-imagen`）、`ID05`（跨所有者会话绘图查询返回 403 `file.permission_denied`）、`ID03`（基于真实网关的多轮绘图、部分产出保留、选图编辑、用户定稿、409 冲突拦截与定稿后继续生成保留原定稿）以及 `ID02` 中 GPT（`openai-images` / `openai-responses-image`）、MiniMax（`minimax-images` / New API `openai-images`）与 Gemini（`google-gemini-image`）在标准后端配置下的全链路实测（脚本 [verify/run-live-verification.mts](verify/run-live-verification.mts)，证据 [verify/live-evidence-20261102.json](verify/live-evidence-20261102.json)），生产容器 `cherynyxus-backend-1` 已核实安装 Sharp `0.35.5`。
 
 剩余未闭环项：
-1. `ID02` 中 `minimax-images`、`doubao-seedream`、`google-gemini-image` 需具备对应厂商原生 API 端点与凭据后补测。
+1. `ID02` 中 `doubao-seedream` 待火山方舟渠道与凭据接入后补测。
 2. `ID04` 依赖[服务端工具完整流程](../server-tools-completion/README.md) `SC01`—`SC04`。
 3. `ID06` 浏览器三视图、窄窗/键盘/触屏与实际成图视觉效果由用户人工验收。

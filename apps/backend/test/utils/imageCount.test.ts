@@ -1,6 +1,9 @@
+import { cpSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { calculateImageCount, ImageOutputCapabilitySchema, requestedImageCount, withoutImageCountParams, imageParameterFields } from '@chery/protocol'
 import config from '@/utils/config.js'
+import { resetModelCatalogCache } from '@/utils/modelCatalog.js'
 import { resolveImageOutput, imageCountParams } from '@/service/fileServices/imageOutput.js'
 import { migrateLegacyFileConfig } from '@/utils/fileConfigMigration.js'
 import type { FileServiceConfig } from '@chery/plugin-api'
@@ -49,7 +52,17 @@ describe('绘图数量与配置', () => {
     expect(imageCountParams(service, maximum, {})).toEqual({ sequential_image_generation: 'auto', sequential_image_generation_options: { max_images: 6 } })
     service.adapter = 'openai-responses-image'; service.connection.model = 'chat-model'
     expect(resolveImageOutput({ service, operation: 'image.generate', desiredCount: 6, params: { image_model: 'gpt-image-1' }, config }).count).toMatchObject({ countControl: 'uncontrolled', nativeMultiImage: 'unknown' })
-    service.adapter = 'openai-images'; service.connection.capabilities = undefined; service.connection.model = 'unverified-endpoint'
+    cpSync(new URL('../../.chery.template/model-catalog.yaml', import.meta.url), join(process.env.CHERY_DIR!, '.chery', 'model-catalog.yaml'))
+    resetModelCatalogCache()
+    service.adapter = 'openai-images'; service.connection.capabilities = undefined; service.connection.model = 'gpt-image-2.5'
+    expect(resolveImageOutput({ service, operation: 'image.generate', desiredCount: 2, config })).toMatchObject({ availability: 'available', count: { effectiveCount: 2, effectiveMaximum: 10, countControl: 'requested' } })
+    for (const model of ['image-01', 'image-01-live']) {
+      service.connection.model = model
+      const mm = resolveImageOutput({ service, operation: 'image.generate', desiredCount: 2, config })
+      expect(mm).toMatchObject({ availability: 'available', count: { effectiveCount: 2, effectiveMaximum: 9, countControl: 'requested' } })
+      expect(imageCountParams(service, mm, { prompt: 'test' })).toEqual({ prompt: 'test', n: 2 })
+    }
+    service.connection.model = 'unverified-endpoint'
     expect(resolveImageOutput({ service, operation: 'image.generate', config }).availability).toBe('unknown')
   })
   it('字段按实际型号显示，数量不再出现在服务默认字段中', () => {

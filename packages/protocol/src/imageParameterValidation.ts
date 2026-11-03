@@ -17,7 +17,7 @@ export function imageParameterErrors(adapter: string, params: Record<string, unk
   }
   if (adapter.startsWith('openai-')) {
     const imageModel = adapter === 'openai-responses-image' ? String(p.image_model ?? '') : model
-    const image25 = /^gpt-image-2\.5-(sunburst|flare)$/.test(imageModel)
+    const image25 = /^gpt-image-2\.5(?:-(?:sunburst|flare))?$/.test(imageModel)
     if (['xhigh', 'max'].includes(String(p.quality)) && !image25) invalid('quality: xhigh/max 图片质量仅对已确认的 GPT Image 2.5 型号开放；Responses 请显式设置 image_model')
     if (p.size && !['auto', '1024x1024', '1536x1024', '1024x1536'].includes(String(p.size))) {
       if (!image25) invalid('size: 自定义图片尺寸仅对已确认的 GPT Image 2.5 型号开放')

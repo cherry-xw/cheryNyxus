@@ -1729,7 +1729,7 @@ models:
     match:
       models:
         - regex: >-
-            (?:^|[/_.:-])gpt[-_.]image[-_.](?:1(?:[._-]5|[-_.]mini)?|2(?:[._-]5[-_.](?:sunburst|flare))?)(?:$|[-_/:](?=[0-9]))
+            (?:^|[/_.:-])gpt[-_.]image[-_.](?:1(?:[._-]5|[-_.]mini)?|2(?:[._-]5(?:[-_.](?:sunburst|flare))?)?)(?:$|[-_/:](?=[0-9]))
           flags: i
     facts:
       capabilities:
@@ -1767,7 +1767,8 @@ models:
     facts:
       capabilities:
         imageOutput:
-          image.generate: { adapter: minimax-images, nativeMultiImage: supported, countControl: requested, maxImagesPerRequest: 9 }
+          image.generate: { nativeMultiImage: supported, countControl: requested, maxImagesPerRequest: 9 }
+          image.reference: { nativeMultiImage: supported, countControl: requested, maxImagesPerRequest: 9 }
         toolCall: false
         input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
         output: { image: supported, video: unsupported, audio: unsupported }
@@ -1784,6 +1785,9 @@ models:
         - { regex: '(?:^|[/_.:-])image[-_.]?01[-_.]?live(?:$|[-_/:])', flags: i }
     facts:
       capabilities:
+        imageOutput:
+          image.generate: { nativeMultiImage: supported, countControl: requested, maxImagesPerRequest: 9 }
+          image.reference: { nativeMultiImage: supported, countControl: requested, maxImagesPerRequest: 9 }
         toolCall: false
         input: { image: supported, video: unsupported, audio: unsupported, pdf: unsupported }
         output: { image: supported, video: unsupported, audio: unsupported }

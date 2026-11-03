@@ -146,7 +146,7 @@ MiniMax M3.1 Flash Preview 的 Chat Completions 使用 `reasoning_effort`，Mess
 
 全局 `files.imageGeneration.defaultCount` 是唯一默认张数，缺省 1。服务 defaults 不再接受 n、sampleCount、sequential_image_generation 或 sequential_image_generation_options；这些仅由统一张数计算生成当次厂商参数。期望张数与收小后的有效张数分别记录，参数、接口、型号或参考图改变后重算，不改写已保存的全局偏好。旧服务数量默认一次性移除，其他参数与历史请求结果保留。该契约实施中，尚不表示运行版本已支持。
 
-- GPT Image 2.5 的具体型号为 `gpt-image-2.5-sunburst` 与 `gpt-image-2.5-flare`。支持显式 `xhigh/max` 图片质量和自定义尺寸：边长不超过 3840、16 的倍数、最长短边比不超过 3、总像素 655360–8294400。Responses 图片服务需显式设置 `image_model` 才使用这些专属参数，不能把顶层聊天模型当作图片模型。旧代质量/尺寸限制保持独立；2 的 `input_fidelity` 明确不能发送，2.5 的该旧参数未确认也不猜测开放。流式局部图片仍未实现，不把接口支持说成本地已支持。
+- GPT Image 2.5 的具体型号为 `gpt-image-2.5`、`gpt-image-2.5-sunburst` 与 `gpt-image-2.5-flare`。支持显式 `xhigh/max` 图片质量和自定义尺寸：边长不超过 3840、16 的倍数、最长短边比不超过 3、总像素 655360–8294400。Responses 图片服务需显式设置 `image_model` 才使用这些专属参数，不能把顶层聊天模型当作图片模型。旧代质量/尺寸限制保持独立；2 的 `input_fidelity` 明确不能发送，2.5 的该旧参数未确认也不猜测开放。流式局部图片仍未实现，不把接口支持说成本地已支持。
 - Gemini 图片服务使用 `generateContent`，保存配置名 `imageConfig` 在发送时映射为 `generationConfig.responseFormat.image`；不是聊天 OpenAI 兼容接口。3.1 Flash Image 支持 `512`，Flash Lite Image 只支持 `1K`；具体图像型号才声明图片输入输出，不把 PDF 或 Chat Completions 支持写成已确认。Interactions API 页面不是 generateContent 请求 schema。
 - Seedream 5.0 pro 为 `doubao-seedream-5-0-pro-260628`，flash 为 `doubao-seedream-5-0-flash-260915`。基础生图支持 `1K/1.5K/2K` 或总像素 921600–4624220、宽高比 1/16–16 的尺寸；不是 4K。`optimize_prompt_options.mode=fast` 仅 pro，flash 仅 standard。PNG/JPEG 输出、b64_json/url 返回、水印、最多 10 张参考图分别校验；现代型号单图上限 30,000,000 字节。上游还接收更多图片格式，本地通用资产入口仅开放 PNG/JPEG/WebP/GIF，不扩大原资产格式契约。
 - Seedream 透明输出显式 `background=transparent`，本地需单张 PNG 参考图并禁止 JPEG 输出，真实透明通道由服务方校验。图层拆分虽然上游已支持，但本地缺图层位置/名称等结果契约，因此明确拒绝 `layer_decomposition`，不把普通多图结果冒充图层支持。组图、seed 与流式不套到 pro/flash；没有自动重试或收费降级。

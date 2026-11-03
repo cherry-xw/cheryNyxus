@@ -39,7 +39,8 @@ export function endpoint(input: FileServiceAdapterInput, route: string, version:
   if (override) return httpUrl(override)
   const base = httpUrl(input.connection.baseUrl)
   if (base.search) throw new FileServiceAdapterError('file_service.invalid_config', '基础地址不能包含查询参数，请使用完整端点覆盖')
-  const path = base.pathname.replace(/\/+$/, '')
+  const rawPath = base.pathname.replace(/\/+$/, '')
+  const path = version !== 'v1' ? rawPath.replace(/\/v1$/, '') : rawPath
   base.pathname = `${path.endsWith(`/${version}`) ? path : `${path}/${version}`}/${route}`
   return base
 }

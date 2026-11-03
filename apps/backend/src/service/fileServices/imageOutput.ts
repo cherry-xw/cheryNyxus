@@ -41,7 +41,7 @@ export function resolveImageOutput(input: {
   const configured = service.connection.capabilities?.imageOutput?.[operation] ?? (service.adapter === 'openai-responses-image' ? undefined : brain?.capabilities?.imageOutput?.[operation])
   const manual = configured && (!configured.adapter || configured.adapter === service.adapter) ? configured : undefined
   const candidate = catalog.recommend?.capabilities?.imageOutput?.[operation] ?? catalog.facts?.capabilities?.imageOutput?.[operation]
-  const described = candidate?.adapter === service.adapter ? candidate : undefined
+  const described = candidate && (!candidate.adapter || candidate.adapter === service.adapter) ? candidate : undefined
   let capability: ImageOutputCapability = manual ?? described ?? { nativeMultiImage: 'unknown', countControl: 'unknown' }
   let source: ResolvedImageOutput['source'] = manual ? 'user' : described ? 'catalog' : 'default'
   if (['openai-responses-image', 'google-gemini-image'].includes(service.adapter)) {

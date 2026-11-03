@@ -319,6 +319,7 @@ export const FILE_SERVICE_ADAPTER_CATALOG: readonly FileServiceAdapterDefinition
       'gpt-image-1-mini',
       'gpt-image-1.5',
       'gpt-image-2',
+      'gpt-image-2.5',
       'gpt-image-2.5-sunburst',
       'gpt-image-2.5-flare',
     ],

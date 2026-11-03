@@ -31,11 +31,12 @@ afterEach(() => vi.useRealTimers())
 describe('文件服务 HTTP 适配器', () => {
   it('Gemini maps saved imageConfig to current native responseFormat.image', async () => {
     const fetcher = mockFetch({ candidates: [{ content: { parts: [{ inlineData: { data: first, mimeType: 'image/png' } }] } }] })
-    await executeFileServiceAdapter(input('google-gemini-image', { connection: { baseUrl: 'https://provider.example/v1beta', model: 'gemini-3.1-flash-image' }, params: { prompt: 'synthetic', imageConfig: { imageSize: '512', aspectRatio: '16:9' } } }), { fetch: fetcher })
+    await executeFileServiceAdapter(input('google-gemini-image', { connection: { baseUrl: 'https://provider.example/v1', model: 'gemini-3.1-flash-image' }, params: { prompt: 'synthetic', imageConfig: { imageSize: '512', aspectRatio: '16:9' } } }), { fetch: fetcher })
+    expect(String(fetcher.mock.calls[0]![0])).toBe('https://provider.example/v1beta/models/gemini-3.1-flash-image:generateContent')
     expect(requestBody(fetcher).generationConfig).toEqual({ responseModalities: ['TEXT', 'IMAGE'], responseFormat: { image: { imageSize: '512', aspectRatio: '16:9' } } })
     expect(() => validateFileServiceAdapterParams('google-gemini-image', { prompt: 'synthetic', imageConfig: { imageSize: '4K' } }, 'gemini-3.1-flash-lite-image')).toThrow()
   })
-  it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])('GPT Image 2.5 %s forwards explicit quality and custom dimensions without a paid request', async model => {
+  it.each(['gpt-image-2.5', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])('GPT Image 2.5 %s forwards explicit quality and custom dimensions without a paid request', async model => {
     const fetcher = mockFetch({ data: [{ b64_json: first }] })
     await executeFileServiceAdapter(input('openai-images', { connection: { baseUrl: 'https://provider.example/v1', model }, params: { prompt: 'synthetic', quality: 'xhigh', size: '3840x2160', output_format: 'png' } }), { fetch: fetcher })
     expect(requestBody(fetcher)).toMatchObject({ model, quality: 'xhigh', size: '3840x2160' })
