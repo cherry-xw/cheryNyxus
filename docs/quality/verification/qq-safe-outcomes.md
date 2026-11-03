@@ -1,5 +1,7 @@
 # QQ 图片、错误事实、Manager 平台与指令停止归档后续审核清单
 
+> 2026-11-02 存储整理：用户已授权清理本文引用的本机历史发布、验证材料及备份。原绝对路径仅为历史定位信息，不保证原文件仍可访问，不得据此执行旧发布/回滚命令或声称仍有恢复副本。当前 Backend 已整理为单文件 Compose，QQ worker 已迁出历史发布目录；维护入口和本次验证边界见[本机部署布局](../../guides/cherynyxus-host-layout.md)。以下历史业务结论不等于本次重新验收。
+
 ## 范围
 
 本清单归档以下已结项任务中尚未在生产或浏览器人工完成的细枝末节验证项与外围边界。正式功能与协议事实以 [`plugins/qq/README.md`](../../../plugins/qq/README.md)、[`docs/shared/protocol/qqbot-plugin.md`](../../shared/protocol/qqbot-plugin.md)、[`docs/shared/protocol/errors.md`](../../shared/protocol/errors.md)、[`docs/shared/architecture/manager-management.md`](../../shared/architecture/manager-management.md)、[`docs/shared/architecture/manager-plugins.md`](../../shared/architecture/manager-plugins.md) 和 [`docs/guides/backend-runtime.md`](../../guides/backend-runtime.md) 为准。

@@ -1,5 +1,7 @@
 # 文件能力验证
 
+> 2026-11-02 存储整理：用户已授权清理本文引用的本机历史发布、验证材料及备份。原绝对路径只作历史定位，不保证原文件仍可访问；旧发布叠加命令不再适用。当前维护入口及验证边界见[本机部署布局](../../guides/cherynyxus-host-layout.md)。本轮未重新执行真实模型、QQ 或浏览器业务验证。
+
 ## 范围与判断
 
 覆盖资产保存与迁移、有序消息、模型输入与图片保留、文件服务、角色交付、Web 草稿/试用及 QQ/NapCat 文件协议。契约分别见[模型能力](../../backend/agent/model-capabilities.md)、[Provider](../../backend/agent/provider.md)、[消息](../../backend/core/message.md)、[工作台文件](../../frontend/workbench-files.md)和[QQ 协议](../../shared/protocol/qqbot-plugin.md)。
