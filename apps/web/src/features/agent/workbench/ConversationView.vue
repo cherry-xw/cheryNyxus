@@ -15,7 +15,8 @@ import { displayDraftFiles, encodeDraftFiles } from '@/domain/chat/messageParts'
  *    匹配 pending 提问批，选项点选 + 补充 + 提交走 interactions.answer）；打开时刷新一次
  *    interactions store，确保列表内提问可交互（后续由 interaction.changed 事件实时更新）
  */
-import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
+import { DRAWING_DRAFT } from '../composer/useDrawingDraft'
 import { Plus, Top } from '@element-plus/icons-vue'
 import { ElPopover, ElTooltip, ElUpload } from 'element-plus'
 import type { UploadFile } from 'element-plus'
@@ -25,6 +26,7 @@ import type { ConversationBranchSummary } from '@/application/backend/public'
 import { useInstructionSuggestions } from '../composer/useInstructionSuggestions'
 import InstructionSuggestions from '../composer/InstructionSuggestions.vue'
 import MediaThumbStrip from '../composer/media/MediaThumbStrip.vue'
+import DrawingPanel from '../composer/DrawingPanel.vue'
 import type { MediaAttachment, MediaKind } from '../composer/useAgentDialogOptions'
 import { splitCommandPrompt } from '../composables/commands'
 import WorkbenchAgentUsageBar from './WorkbenchAgentUsageBar.vue'
@@ -54,6 +56,7 @@ const props = defineProps<{
   canStopTask: boolean
   stoppingTask: boolean
 }>()
+const drawing = inject(DRAWING_DRAFT, undefined)
 
 const emit = defineEmits<{
   switchChat: [chatId: string]
@@ -214,6 +217,7 @@ onMounted(() => {
     </div>
 
     <div class="conversation-input">
+      <DrawingPanel :disabled="sending || loading || uploading" />
       <div v-if="error" class="conversation-input-error" role="alert">{{ error }}</div>
       <div class="conversation-input-chips">
         <span v-if="branchActive" class="conversation-chip is-branch">
@@ -371,10 +375,10 @@ onMounted(() => {
           type="button"
           class="conversation-send-btn"
           :disabled="sending || uploading || loading || (!text.trim() && !mediaAttachments.length) || mediaAttachments.some(a => a.status === 'failed')"
-          :aria-label="sending ? '消息正在发送' : '发送消息'"
+            :aria-label="sending ? '消息正在发送' : drawing?.sendLabel.value ?? '发送消息'"
           @click="emit('send')"
         >
-          {{ sending ? '发送中…' : '发送' }}
+          {{ sending ? '发送中…' : drawing?.sendLabel.value ?? '发送' }}
         </button>
       </div>
       <WorkbenchAgentUsageBar

@@ -155,6 +155,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     senseTool,
     brainConfig,
     supportsTools,
+    drawing,
   } = useAgentDialogOptions({
     draftScope: `workbench:${props.windowId}`,
     draftChatId: () => (viewMode.value === 'conversation' ? conversationRootChatId.value : null) ?? win.value?.chatId ?? null,
@@ -522,7 +523,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       }
       sending.value = true
       try {
+        const drawingIntent = drawing.prepare(target.sourceRootChatId)
         const created = await agentApi.createBranch({
+          drawing: drawingIntent,
           rootChatId: target.sourceRootChatId,
           anchorNodeId: target.nodeId,
           branchType: target.type,
@@ -532,6 +535,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
           messageId: uuid(),
           ...(target.type === 'continuation' ? { effectDigest: target.effectDigest } : {}),
         })
+        if (drawingIntent) drawing.submitted(drawingIntent, created.input.drawing)
         branchTarget.value = undefined
         resetEditor()
         resetMedia()
