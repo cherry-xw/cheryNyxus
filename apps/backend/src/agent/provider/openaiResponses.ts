@@ -6,6 +6,7 @@ import {
   registerMessageAdapter,
   groupAttachmentsByMessage,
   orderedMessageInputs,
+  type AssistantTurnSegment,
   type BuildMessagesOptions,
   type LLMAttachment,
   type LLMResponse,
@@ -331,8 +332,68 @@ const responsesMessageAdapter: MessageProviderAdapterConfig<
     const calls = extractResponsesServerToolCalls(raw)
     return calls.length > 0 ? calls : undefined
   },
+  extractNonStreamServerToolDeltas: (raw) => {
+    const calls = extractResponsesServerToolCalls(raw)
+    if (calls.length === 0) return undefined
+    return calls.flatMap((c): ServerToolCallDelta[] => {
+      const rawItem = raw.output?.[c.index ?? 0]
+      return [
+        {
+          kind: 'start',
+          index: c.index ?? 0,
+          id: c.id,
+          name: c.name,
+          arguments: c.arguments,
+          status: c.status,
+          protocol: 'openai-responses',
+          ...(c.responseId ? { responseId: c.responseId } : {}),
+          ...(rawItem ? { rawBlock: structuredClone(rawItem) as Record<string, unknown> } : {}),
+        },
+        {
+          kind: 'result',
+          index: c.index ?? 0,
+          callId: c.id,
+          name: c.name,
+          status: c.status === 'completed' || c.status === 'failed' ? c.status : 'unknown',
+          result: c.result,
+          ...(c.sources ? { sources: c.sources } : {}),
+        },
+      ]
+    })
+  },
+  turnSegments: (raw) => {
+    const segments: AssistantTurnSegment[] = []
+    for (const [index, item] of (raw.output ?? []).entries()) {
+      if (item.type === 'reasoning') {
+        segments.push({
+          index,
+          kind: 'thinking',
+          text: [item.reasoning_content ?? '', textFromParts(item.summary), textFromParts(item.content)].join(''),
+        })
+      } else if (item.type === 'message') {
+        segments.push({ index, kind: 'text', text: textFromParts(item.content) })
+      } else if (item.type === 'web_search_call') {
+        segments.push({
+          index,
+          kind: 'server_tool',
+          callId: item.id ?? item.call_id ?? `ws-${index}`,
+        })
+      } else if (item.type === 'function_call') {
+        segments.push({
+          index,
+          kind: 'sense_call',
+          callId: item.call_id ?? item.id ?? `sense-${index}`,
+        })
+      }
+    }
+    return segments.length > 0 ? segments : undefined
+  },
   extractStreamDelta: (event) =>
     event.type === 'response.output_text.delta' ? (event.delta ?? '') : '',
+  extractStreamTextSegment: (event) =>
+    event.type === 'response.output_text.delta' && event.delta
+      ? { index: event.output_index ?? 0, text: event.delta }
+      : undefined,
   extractStreamThinking: (event) =>
     event.type === 'response.reasoning_summary_text.delta' ||
     event.type === 'response.reasoning_text.delta' ||
@@ -361,6 +422,7 @@ const responsesMessageAdapter: MessageProviderAdapterConfig<
           arguments: formatWebSearchActionArgs(item.action),
           status,
           protocol: 'openai-responses',
+          rawBlock: structuredClone(item) as Record<string, unknown>,
         },
       ]
       if (isDone) {
@@ -467,14 +529,17 @@ const responsesSenseAdapter: SenseAdapter<ResponsesResult> = {
     })
   },
   senseCalls(response): SenseCallData[] {
-    return (response.output ?? [])
-      .filter((item) => item.type === 'function_call')
-      .map((item, index) => ({
+    const out: SenseCallData[] = []
+    for (const [index, item] of (response.output ?? []).entries()) {
+      if (item.type !== 'function_call') continue
+      out.push({
         index,
         id: item.call_id ?? item.id ?? `sense-${index}`,
         name: item.name,
         arguments: item.arguments ?? '',
-      }))
+      })
+    }
+    return out
   },
   extractSenseCallDeltas(chunk): SenseCallData[] {
     const event = chunk as ResponsesStreamEvent

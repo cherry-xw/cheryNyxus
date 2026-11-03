@@ -286,6 +286,10 @@ export interface StreamChunk {
   thinkingBlocksDelta?: ThinkingBlockDelta[]
   /** 服务端工具调用/结果流式增量 */
   serverToolDeltas?: ServerToolCallDelta[]
+  /** 带块序号的正文片段增量（用于恢复思考/正文/工具交错顺序） */
+  textSegmentDelta?: { index: number; text: string }
+  /** 非流式完整轮次的块级有序片段 */
+  turnSegments?: import('../message/adapter').AssistantTurnSegment[]
   /** 流式结束原因（如 end_turn / tool_use / completed） */
   stopReason?: string
   /** checkpoint 外层注入的本轮 assistant 消息 id；chat provider 内层产出时尚未附加。 */

@@ -49,7 +49,7 @@ export interface LLMResponse {
 
 - **`revoked`**：由 [`Middleware.revokeTrailingCycle`](middleware.md) 在 `chat.send` 恢复场景打标，`buildMessages` 构建给 LLM 的上下文时过滤掉。详见 [interaction.md](../../shared/protocol/interactions.md)。
 - **`hash` + `replace`**：感官执行结果按内容算 hash；若新读取命中历史相同 hash（文件未变动），旧 sense 消息被替换为短说明，长内容移到 `originalContent`。去重逻辑在 [`agent/middleware/tool.ts`](../../../apps/backend/src/agent/middleware/tool.ts) `doExecuteSense`。
-- **`serverToolCalls`**：服务端已执行的工具调用记录（如 Anthropic `server_tool_use`/`tool_result`、OpenAI Responses `web_search_call`），持久化在 `messages.provider_continuation.serverToolCalls`，与本地 `senseCalls` 分离，不阻塞 `loop` / `canResume` / `spawnFinalize`，并在时间线与 UI 投影为 `executionOwner: 'server'`。
+- **`serverToolCalls` 与受保护续接（`providerContinuation`）**：服务端已执行的工具调用展示记录（如 Anthropic `server_tool_use`/`tool_result`、OpenAI Responses `web_search_call`）经过 URL 查询凭据与长文本脱敏后持久化在 `messages.provider_continuation.serverToolCalls`，与本地 `senseCalls` 分离，不阻塞 `loop` / `canResume` / `spawnFinalize`，并在时间线与 UI 投影为 `executionOwner: 'server'`。同轮响应内思考、正文、本地工具与服务端工具的块序（`turnSegments` / `senseCallIndices`）以及仅供同供应商同协议多轮回传使用的未脱敏原始服务端块（`serverToolContinuation`）独立保存在 `provider_continuation` 中；`serverToolContinuation` 绝不下发给前端或日志，切换供应商或协议时不回放他方私有块，也不会将脱敏后的 `serverToolCalls` 当作原始续接块回传。
 
 ### SenseCallInfo / ServerToolCallInfo
 

@@ -103,7 +103,7 @@ MCP sense 绕过 sense_groups，**无 `:level` 后缀覆盖**。最终监管等�
        └─ 每个 server → connectMcpServerByName(name):
             ├─ connectMcpServer()      buildTransport + Client.connect(握手)
             ├─ getServerCapabilities()
-            ├─ caps.tools?     listTools → 每个 toolToSense
+            ├─ caps.tools?     listTools（跟随 nextCursor 分页拉取完整目录；listChanged 通知触发刷新，失败保留旧列表并标记 stale） → 每个 toolToSense
             ├─ caps.resources? listResources → resourceToSense(合一)
             └─ caps.prompts?   listPrompts → promptToSense(合一)
             → registerSenses + connectedServers.set(name,{handle,senseNames})

@@ -6,8 +6,14 @@ import { captureSenseRegistryRestore } from '@/core/sense/senseRegistry.js'
 import type { Sense } from '@/core/sense'
 import { connectMcpServer } from './client.js'
 import { toolToSense, resourceToSense, promptToSense } from './convert.js'
-import type { McpSenseContext, McpServerInfo } from './types.js'
-import { McpServerError } from './types.js'
+import {
+  MCP_PREFIX,
+  PROMPT_SENSE_SUFFIX,
+  RESOURCE_SENSE_SUFFIX,
+  McpServerError,
+  type McpSenseContext,
+  type McpServerInfo,
+} from './types.js'
 import {
   McpLifetime,
   trackMcpSenses,
@@ -17,6 +23,7 @@ import {
 
 interface ConnectedEntry {
   disconnected?: boolean
+  stale?: boolean
   lifetime: McpLifetime
   cfg: McpServerConfig
   senses: Sense<ZodType>[]
@@ -40,6 +47,27 @@ export function classifyMcpChange(before?: McpServerConfig, after?: McpServerCon
   return isDeepStrictEqual(a, b) ? 'supervision' : 'connection'
 }
 
+async function listAllMcpTools(client: McpSenseContext['client']) {
+  const tools: Awaited<ReturnType<typeof client.listTools>>['tools'] = []
+  const seenCursors = new Set<string>()
+  let cursor: string | undefined
+  for (let page = 0; page < 50; page++) {
+    const res = (cursor ? await client.listTools({ cursor }) : await client.listTools()) as {
+      tools?: Awaited<ReturnType<typeof client.listTools>>['tools']
+      nextCursor?: string
+    }
+    if (Array.isArray(res?.tools)) tools.push(...res.tools)
+    const next =
+      typeof res?.nextCursor === 'string' && res.nextCursor.trim()
+        ? res.nextCursor.trim()
+        : undefined
+    if (!next || seenCursors.has(next)) break
+    seenCursors.add(next)
+    cursor = next
+  }
+  return tools
+}
+
 async function buildSensesForServer(name: string, cfg: McpServerConfig): Promise<ConnectedEntry> {
   const lifetime = new McpLifetime(await connectMcpServer(name, cfg), cfg.transport === 'stdio')
   try {
@@ -54,8 +82,18 @@ async function buildSensesForServer(name: string, cfg: McpServerConfig): Promise
     const client = lifetime.handle.client
     const caps = client.getServerCapabilities()
     if (caps?.tools) {
-      const { tools } = await client.listTools()
+      const tools = await listAllMcpTools(client)
       senses.push(...tools.map((tool) => toolToSense(tool, ctx)))
+      const notifyTarget = client as unknown as {
+        fallbackNotificationHandler?: (notification: { method?: string }) => Promise<void>
+      }
+      const prevHandler = notifyTarget.fallbackNotificationHandler
+      notifyTarget.fallbackNotificationHandler = async (notification) => {
+        if (notification?.method === 'notifications/tools/list_changed') {
+          await refreshMcpServerTools(name).catch(() => {})
+        }
+        if (prevHandler) await prevHandler(notification)
+      }
     }
     if (caps?.resources) {
       const resources = await client
@@ -294,8 +332,51 @@ function buildServerInfo(name: string, cfg: McpServerConfig): McpServerInfo {
     supervision: entry ? entry.cfg.supervision : cfg.supervision,
     senseNames: available ? entry.senseNames : [],
     ...(error ? { error } : {}),
+    ...(available && entry?.stale ? { stale: true } : {}),
     ...adoption,
   }
+}
+
+export async function refreshMcpServerTools(name: string): Promise<McpServerInfo> {
+  const entry = connectedServers.get(name)
+  if (!entry || entry.disconnected || entry.lifetime.closed || entry.lifetime.suspended) {
+    return getMcpServer(name)
+  }
+  const client = entry.lifetime.handle.client
+  const caps = client.getServerCapabilities()
+  if (!caps?.tools) return getMcpServer(name)
+  const ctx: McpSenseContext = {
+    get client() {
+      return entry.lifetime.handle.client
+    },
+    serverName: name,
+    defaultSupervision: entry.cfg.supervision,
+  }
+  const resourceSuffix = `${MCP_PREFIX}${name}__${RESOURCE_SENSE_SUFFIX}`
+  const promptSuffix = `${MCP_PREFIX}${name}__${PROMPT_SENSE_SUFFIX}`
+  try {
+    const tools = await listAllMcpTools(client)
+    const toolSenses = tools.map((tool) => toolToSense(tool, ctx))
+    trackMcpSenses(toolSenses, entry.lifetime)
+    const preservedSenses = entry.senses.filter((s) => {
+      const fnName = s.definition.function.name
+      return fnName === resourceSuffix || fnName === promptSuffix
+    })
+    const oldToolNames = entry.senseNames.filter(
+      (fnName) => fnName !== resourceSuffix && fnName !== promptSuffix,
+    )
+    unregisterSenses(oldToolNames)
+    registerSenses(toolSenses)
+    entry.senses = [...toolSenses, ...preservedSenses]
+    entry.senseNames = entry.senses.map((s) => s.definition.function.name)
+    entry.stale = false
+    lastError.delete(name)
+  } catch {
+    // 刷新失败时保留最后一次已发现列表并标记过期状态，不假装刷新成功
+    entry.stale = true
+    lastError.set(name, { message: 'MCP 工具列表刷新失败，暂展示上次结果' })
+  }
+  return getMcpServer(name)
 }
 
 export function listMcpServers(): McpServerInfo[] {

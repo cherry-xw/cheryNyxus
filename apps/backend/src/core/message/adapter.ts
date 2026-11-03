@@ -15,6 +15,8 @@ export interface SenseCallInfo {
   id: string
   name: string
   arguments: string
+  /** 响应块中的原始位置序号（可选，用于恢复思考/正文/本地与服务端工具混合顺序） */
+  index?: number
   /** 该工具调用的安全授权判定（authorizeToolCall 输出；缺省 = 无判定，兼容旧数据） */
   security?: ToolAuthorization
   /** 工具执行归属（local=本机/客户端执行，server=由模型服务执行）。 */
@@ -23,6 +25,25 @@ export interface SenseCallInfo {
   serverState?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
   /** 未在本地执行的说明或结果摘要。 */
   result?: string
+}
+
+export interface AssistantTurnSegment {
+  index: number
+  kind: 'thinking' | 'text' | 'server_tool' | 'sense_call'
+  text?: string
+  callId?: string
+}
+
+export interface ProtectedServerToolBlock {
+  index: number
+  block: Record<string, unknown>
+}
+
+export interface ProtectedServerToolContinuation {
+  provider?: string
+  protocol: string
+  responseId?: string
+  blocks: ProtectedServerToolBlock[]
 }
 
 export interface ServerToolSource {
@@ -61,6 +82,7 @@ export type ServerToolCallDelta =
       status?: 'started' | 'completed' | 'failed' | 'unknown' | 'skipped-local'
       protocol?: string
       responseId?: string
+      rawBlock?: Record<string, unknown>
     }
   | {
       kind: 'arguments_delta'
@@ -78,6 +100,7 @@ export type ServerToolCallDelta =
       status?: 'completed' | 'failed' | 'unknown' | 'skipped-local'
       sources?: ServerToolSource[]
       truncated?: boolean
+      rawBlock?: Record<string, unknown>
     }
   | {
       kind: 'citations'
@@ -231,6 +254,10 @@ export interface BuildMessagesOptions {
   /** Anthropic：true=完整协议（保留 redacted_thinking）；false=strip（默认） */
   anthropicOfficial?: boolean
   protocol?: LlmProtocol
+  /** 当前模型所属服务商标识（切换供应商时不回放他方受保护续接块） */
+  provider?: string
+  /** 是否在同供应商同协议下按原始块回传受保护的服务端工具续接块 */
+  includeServerToolContinuation?: boolean
   /** 当前模型按该协议回传历史思考内容的编码方式。 */
   reasoningHistory?: 'assistant-field' | 'reasoning-item' | 'thinking-block' | 'omit'
 }
@@ -245,9 +272,15 @@ export type MessageProviderAdapterConfig<T = unknown, TStream = unknown, TMessag
   thinkingBlocks?: (raw: T) => ThinkingBlock[] | undefined
   /** 提取非流式响应中的服务端工具调用记录 */
   serverToolCalls?: (raw: T) => ServerToolCallInfo[] | undefined
+  /** 提取非流式响应中的服务端工具增量（含受保护原始块与块序） */
+  extractNonStreamServerToolDeltas?: (raw: T) => ServerToolCallDelta[] | undefined
+  /** 提取非流式响应中的有序片段（thinking / text / server_tool / sense_call） */
+  turnSegments?: (raw: T) => AssistantTurnSegment[] | undefined
   /** 提取非流式响应的结束原因（如 end_turn / tool_use / completed） */
   stopReason?: (raw: T) => string | undefined
   extractStreamDelta: (chunk: TStream) => string
+  /** 提取带块序号的正文流式片段（用于还原多块交错顺序） */
+  extractStreamTextSegment?: (chunk: TStream) => { index: number; text: string } | undefined
   extractStreamThinking?: (chunk: TStream) => string | undefined
   /** Anthropic 扩展：流式 blocks 增量（每次返回该 chunk 触发的 blocks 增量）。
    *  由 middleware 累积器聚合成完整 blocks；非 Anthropic provider 不实现。 */

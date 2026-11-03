@@ -288,16 +288,16 @@ OpenAI 官方网页本次返回 HTTP 403，搜索服务返回 401；没有把这
 | --- | --- | --- |
 | [`anthropic.ts`](../../../apps/backend/src/agent/provider/anthropic.ts)、[`openaiResponses.ts`](../../../apps/backend/src/agent/provider/openaiResponses.ts) | 已分开解析服务端调用、结果与普通调用；支持搜索声明转换 | 真实产品请求、多轮与异常完整流程待验收 |
 | `anthropicStreamSSE`、`extractSenseCallDeltas` | 按 block index 分开服务端与普通调用参数；脱敏离线事件覆盖交错、错误与孤立结果 | 真实产品异常与完整多轮仍待验证 |
-| [`core/message/adapter.ts`](../../../apps/backend/src/core/message/adapter.ts) `LLMResponse`、`MessageProviderAdapterConfig` | 已有独立 `serverToolCalls` 和增量接口，不伪造成本地结果 | 正文、思考和工具统一顺序未完整保存；私有块续接未实测 |
-| [`chat.ts`](../../../apps/backend/src/agent/middleware/chat.ts)、[`checkpointState.ts`](../../../apps/backend/src/agent/middleware/checkpointState.ts) | 服务端增量合并与 `end_turn` 混合调用停止本地执行已接通；已有不完整事件、重复快照、审批时机及结果状态的离线覆盖 | 正文/思考/工具完整顺序与全部恢复场景未完成 |
+| [`core/message/adapter.ts`](../../../apps/backend/src/core/message/adapter.ts) `LLMResponse`、`MessageProviderAdapterConfig` | 已有独立 `serverToolCalls`、`turnSegments`、`ProtectedServerToolContinuation` 与增量接口 | 真实网关多轮续接实测待 SC04 执行 |
+| [`chat.ts`](../../../apps/backend/src/agent/middleware/chat.ts)、[`checkpointState.ts`](../../../apps/backend/src/agent/middleware/checkpointState.ts) | 服务端增量合并、`turnSegments` / `senseCallIndices` 块序累积、受保护原始续接 `serverToolContinuation` 与脱敏展示分离已接通 | 真实产品完整多轮待 SC04 验证 |
 | [`fileInputPlanning.ts`](../../../apps/backend/src/agent/middleware/fileInputPlanning.ts) `planFileInputs` | 按原生媒体支持或本地映射工具选择 | 区分模型原生视觉与已验证入口的服务端视觉；不能硬改模型原生声明 |
 | [`imageContext.ts`](../../../apps/backend/src/service/fileServices/imageContext.ts) | 已接通单图分析结果写入观察描述，沿用图片保留规则 | 产品看图路径与多图可靠关联未验证 |
-| [`db/message.ts`](../../../apps/backend/src/db/message.ts)、[`observer.ts`](../../../apps/backend/src/service/chat/observer.ts) | `provider_continuation.serverToolCalls` 与本地调用分开保存；增量更新、清空和独立续接字段保留已有离线覆盖 | 真实重启全流程与受保护原始续接仍待完成及验收 |
-| [`types.ts`](../../../apps/backend/src/core/middleware/types.ts)、[`timeline.ts`](../../../packages/protocol/src/timeline.ts) | 已传递执行归属、状态、结果与来源 | 跨端完整恢复仍需验收 |
-| [`SenseCallBox.vue`](../../../apps/web/src/features/agent/chat/SenseCallBox.vue)、[`BrainServerTools.vue`](../../../apps/web/src/features/agent/settings/tabs/brain/BrainServerTools.vue) | 工具卡隐藏本地操作；设置按需只读展示能力来源、目录说明、此连接观察记录及完整列表未知，支持刷新 | 用户界面验收未完成；真实任务验证状态管理未完成 |
+| [`db/message.ts`](../../../apps/backend/src/db/message.ts)、[`observer.ts`](../../../apps/backend/src/service/chat/observer.ts) | `provider_continuation` 分开保存脱敏展示 `serverToolCalls`、块序与受保护原始续接 `serverToolContinuation`；切换供应商不回放他方私有块 | 真实多轮实测待 SC04 验收 |
+| [`types.ts`](../../../apps/backend/src/core/middleware/types.ts)、[`timeline.ts`](../../../packages/protocol/src/timeline.ts) | 已传递执行归属、状态、结果、来源与统一块序投影 | 跨端完整恢复待 SC05 用户验收 |
+| [`SenseCallBox.vue`](../../../apps/web/src/features/agent/chat/SenseCallBox.vue)、[`BrainServerTools.vue`](../../../apps/web/src/features/agent/settings/tabs/brain/BrainServerTools.vue) | 工具卡隐藏本地操作；设置按需只读展示能力来源、目录说明、此连接观察记录与真实任务验证状态，支持刷新 | 用户界面验收待 SC05 执行 |
 | [`modelCatalog.ts`](../../../apps/backend/src/utils/modelCatalog.ts)、[`brainCapabilities.ts`](../../../apps/backend/src/service/config/brainCapabilities.ts) `readBrainServiceCapabilities` | 区分原生媒体、按协议推荐的 `serverTools`、目录工具说明、已观察记录与真实任务验证记录（`not-verified / verified / failed`）；Web/AI 共用读取；目录附加说明不写入大脑配置 | 型号推荐与已观察调用均不自动变成验证通过；真实网关验证结果待 SC03/SC04 跑通后写入 |
 | [`serverToolScope.ts`](../../../apps/backend/src/utils/serverToolScope.ts)、[`serverToolObservation.ts`](../../../apps/backend/src/agent/provider/serverToolObservation.ts)、[`serverToolObservations.ts`](../../../apps/backend/src/db/serverToolObservations.ts) | 按服务商/有效协议/地址/完整 URL/模型/凭据引用及实际凭据隔离；分别持久化观察记录（`server_tool_observations`）与真实任务验证记录（`server_tool_verifications`），支持连接变更自动失效与显式清除 | 真实网关多轮验证记录待 SC03/SC04 执行 |
-| [`loader.ts`](../../../apps/backend/src/core/mcp/loader.ts) `buildSensesForServer` | 已知 MCP 工具发现和注册 | 若纳入目录功能，补分页/变更刷新及完整性状态 |
+| [`loader.ts`](../../../apps/backend/src/core/mcp/loader.ts) `buildSensesForServer`、`refreshMcpServerTools` | 已支持 `listTools` `nextCursor` 分页、`notifications/tools/list_changed` 刷新及刷新失败保留旧列表并标记 `stale: true` | 已完成离线验证 |
 
 权威说明归属：模型与文件选择见[模型能力](../../backend/agent/model-capabilities.md)，Provider 见[协议适配](../../backend/agent/provider.md)，消息契约见[Core 消息](../../backend/core/message.md)，MCP 见[MCP 接入](../../backend/core/mcp.md)，Web 见[工具渲染](../../frontend/renderer.md)。实施改变这些事实前先同步相应说明，本文不提前把设计写成已实现行为。
 

@@ -23,10 +23,12 @@ import {
   registerMessageAdapter,
   groupAttachmentsByMessage,
   orderedMessageInputs,
+  type AssistantTurnSegment,
   type BuildMessagesOptions,
   type LLMResponse,
   type LLMAttachment,
   type MessageProviderAdapterConfig,
+  type ProtectedServerToolContinuation,
   type ServerToolCallDelta,
   type ServerToolCallInfo,
   type ServerToolSource,
@@ -383,6 +385,42 @@ const anthropicMessageAdapterConfig = {
     return all.length > 0 ? all : undefined
   },
 
+  extractNonStreamServerToolDeltas: (raw: AnthropicResponse): ServerToolCallDelta[] | undefined => {
+    const out: ServerToolCallDelta[] = []
+    for (const [index, b] of raw.content.entries()) {
+      const deltas = anthropicMessageAdapterConfig.extractStreamServerToolDeltas?.({
+        type: 'content_block_start',
+        index,
+        content_block: b,
+      } as AnthropicSSEEvent)
+      if (deltas) {
+        for (const d of deltas) {
+          if (d.kind === 'start') d.responseId = raw.id
+          out.push(d)
+        }
+      }
+    }
+    return out.length > 0 ? out : undefined
+  },
+
+  turnSegments: (raw: AnthropicResponse): AssistantTurnSegment[] | undefined => {
+    const segments: AssistantTurnSegment[] = []
+    for (const [index, b] of raw.content.entries()) {
+      if (b.type === 'thinking') {
+        segments.push({ index, kind: 'thinking', text: b.thinking })
+      } else if (b.type === 'redacted_thinking') {
+        segments.push({ index, kind: 'thinking' })
+      } else if (b.type === 'text') {
+        segments.push({ index, kind: 'text', text: b.text })
+      } else if (b.type === 'server_tool_use') {
+        segments.push({ index, kind: 'server_tool', callId: b.id })
+      } else if (b.type === 'tool_use') {
+        segments.push({ index, kind: 'sense_call', callId: b.id })
+      }
+    }
+    return segments.length > 0 ? segments : undefined
+  },
+
   extractStreamStopReason: (chunk: AnthropicSSEEvent): string | undefined => {
     if (chunk.type === 'message_delta' && chunk.delta.stop_reason) {
       return chunk.delta.stop_reason
@@ -405,6 +443,7 @@ const anthropicMessageAdapterConfig = {
             arguments: hasInitialInput ? sanitizeServerToolArgs(cb.input) : '',
             status: 'started',
             protocol: 'anthropic-messages',
+            rawBlock: structuredClone(cb) as Record<string, unknown>,
           },
         ]
       }
@@ -423,6 +462,7 @@ const anthropicMessageAdapterConfig = {
             ...(formatted.sources && formatted.sources.length > 0
               ? { sources: formatted.sources }
               : {}),
+            rawBlock: structuredClone(cb) as Record<string, unknown>,
           },
         ]
       }
@@ -448,6 +488,16 @@ const anthropicMessageAdapterConfig = {
       return chunk.delta.text
     }
     return ''
+  },
+
+  extractStreamTextSegment: (chunk: AnthropicSSEEvent): { index: number; text: string } | undefined => {
+    if (chunk.type === 'content_block_start' && chunk.content_block.type === 'text') {
+      return { index: chunk.index, text: chunk.content_block.text ?? '' }
+    }
+    if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+      return { index: chunk.index, text: chunk.delta.text }
+    }
+    return undefined
   },
 
   extractStreamThinking: (chunk: AnthropicSSEEvent): string | undefined => {
@@ -522,6 +572,8 @@ const anthropicMessageAdapterConfig = {
       const message = buildAnthropicMessage(m, attachmentsByMessage.get(m.id), {
         official,
         includeReasoning: buildOptions?.reasoningHistory !== 'omit',
+        provider: buildOptions?.provider,
+        includeServerToolContinuation: buildOptions?.includeServerToolContinuation === true,
       })
       if (Array.isArray(message.content)) for (const block of message.content) {
         if (!inputOrigins(block).length) trackTextInput(block, m)
@@ -577,7 +629,7 @@ function ensureAlternatingUserFirst(history: LLMResponse[]): LLMResponse[] {
 function pushThinkingBlocks(
   blocks: AnthropicContentBlock[],
   m: LLMResponse,
-  options?: { official?: boolean; includeReasoning?: boolean },
+  options?: { official?: boolean; includeReasoning?: boolean; providerMismatch?: boolean },
 ): void {
   if (options?.includeReasoning === false) return
   if (m.thinkingBlocks && m.thinkingBlocks.length > 0) {
@@ -586,11 +638,11 @@ function pushThinkingBlocks(
         blocks.push({
           type: 'thinking',
           thinking: tb.thinking,
-          ...(tb.signature ? { signature: tb.signature } : {}),
+          ...(tb.signature && !options?.providerMismatch ? { signature: tb.signature } : {}),
         })
       } else if (tb.type === 'redacted_thinking') {
-        // 非官方 Anthropic：strip redacted_thinking（3rd-party 端点不支持）
-        if (options?.official === true) {
+        // 非官方 Anthropic 或切换供应商时：strip redacted_thinking（不得回放他方私有块）
+        if (options?.official === true && !options?.providerMismatch) {
           blocks.push({ type: 'redacted_thinking', data: tb.data })
         }
       }
@@ -602,11 +654,25 @@ function pushThinkingBlocks(
   }
 }
 
+function parseSenseArguments(raw?: string): Record<string, unknown> {
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+
 /** 单条 LLMResponse → Anthropic message */
 function buildAnthropicMessage(
   m: LLMResponse,
   attachments?: LLMAttachment[],
-  buildOptions?: { official?: boolean; includeReasoning?: boolean },
+  buildOptions?: {
+    official?: boolean
+    includeReasoning?: boolean
+    provider?: string
+    includeServerToolContinuation?: boolean
+  },
 ): AnthropicMsg {
   // case 1: sense → user 消息含 tool_result block
   if (m.role === 'sense') {
@@ -623,29 +689,122 @@ function buildAnthropicMessage(
     }
   }
 
-  // case 2: assistant 带 senseCalls → content blocks
+  const rawContinuation = m.providerContinuation?.serverToolContinuation as
+    | ProtectedServerToolContinuation
+    | undefined
+  const originProvider =
+    rawContinuation?.provider ??
+    (typeof m.providerContinuation?.provider === 'string'
+      ? m.providerContinuation.provider
+      : undefined)
+  const providerMismatch = Boolean(
+    originProvider && buildOptions?.provider && originProvider !== buildOptions.provider,
+  )
+  const thinkingOptions = { ...buildOptions, providerMismatch }
+
   const localSenseCalls = (m.senseCalls ?? []).filter(
     (sc) => sc.executionOwner !== 'server' && sc.serverState !== 'skipped-local',
   )
+
+  // 同供应商同协议显式启用受保护续接时，按原始块序号还原完整 assistant 内容块（绝不从脱敏 serverToolCalls 拼装）
+  if (
+    m.role === 'assistant' &&
+    buildOptions?.includeServerToolContinuation === true &&
+    !providerMismatch &&
+    rawContinuation?.protocol === 'anthropic-messages' &&
+    Array.isArray(rawContinuation.blocks) &&
+    rawContinuation.blocks.length > 0
+  ) {
+    const indexed = new Map<number, AnthropicContentBlock>()
+    for (const item of rawContinuation.blocks) {
+      indexed.set(item.index, structuredClone(item.block) as AnthropicContentBlock)
+    }
+    const turnSegments = Array.isArray(m.providerContinuation?.turnSegments)
+      ? (m.providerContinuation.turnSegments as AssistantTurnSegment[])
+      : undefined
+    const senseCallIndices =
+      m.providerContinuation?.senseCallIndices &&
+      typeof m.providerContinuation.senseCallIndices === 'object'
+        ? (m.providerContinuation.senseCallIndices as Record<string, number>)
+        : undefined
+    const placedSenseIds = new Set<string>()
+    let thinkingPlaced = false
+
+    if (turnSegments && turnSegments.length > 0) {
+      let thinkingCursor = 0
+      for (const seg of [...turnSegments].sort((a, b) => a.index - b.index)) {
+        if (seg.kind === 'thinking') {
+          thinkingPlaced = true
+          if (buildOptions.includeReasoning === false) continue
+          const tb = m.thinkingBlocks?.[thinkingCursor++]
+          if (tb?.type === 'thinking') {
+            indexed.set(seg.index, {
+              type: 'thinking',
+              thinking: tb.thinking,
+              ...(tb.signature ? { signature: tb.signature } : {}),
+            })
+          } else if (tb?.type === 'redacted_thinking' && buildOptions.official === true) {
+            indexed.set(seg.index, { type: 'redacted_thinking', data: tb.data })
+          } else if (seg.text) {
+            indexed.set(seg.index, { type: 'thinking', thinking: seg.text })
+          }
+        } else if (seg.kind === 'text' && seg.text) {
+          indexed.set(seg.index, { type: 'text', text: seg.text })
+        } else if (seg.kind === 'sense_call' && seg.callId) {
+          const sc = localSenseCalls.find((c) => c.id === seg.callId)
+          if (sc) {
+            placedSenseIds.add(sc.id)
+            indexed.set(seg.index, {
+              type: 'tool_use',
+              id: sc.id,
+              name: sc.name ?? '',
+              input: parseSenseArguments(sc.arguments),
+            })
+          }
+        }
+      }
+    }
+
+    const ordered = [...indexed.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, block]) => block)
+    const fallbackPrefix: AnthropicContentBlock[] = []
+    if (!thinkingPlaced) pushThinkingBlocks(fallbackPrefix, m, thinkingOptions)
+    if (!turnSegments?.some((s) => s.kind === 'text') && m.content) {
+      ordered.push({ type: 'text', text: m.content })
+    }
+    for (const sc of localSenseCalls) {
+      if (placedSenseIds.has(sc.id)) continue
+      const idx = sc.index ?? senseCallIndices?.[sc.id]
+      const block: AnthropicContentBlock = {
+        type: 'tool_use',
+        id: sc.id,
+        name: sc.name ?? '',
+        input: parseSenseArguments(sc.arguments),
+      }
+      if (idx !== undefined && !indexed.has(idx)) {
+        indexed.set(idx, block)
+      } else {
+        ordered.push(block)
+      }
+    }
+    const finalBlocks = [...fallbackPrefix, ...ordered]
+    if (finalBlocks.length === 0) finalBlocks.push({ type: 'text', text: '' })
+    return { role: 'assistant', content: finalBlocks }
+  }
+
+  // case 2: assistant 带 senseCalls → content blocks
   if (m.role === 'assistant' && localSenseCalls.length > 0) {
     const blocks: AnthropicContentBlock[] = []
     // thinking 必须在 text/tool_use 之前（Anthropic 约束）
-    pushThinkingBlocks(blocks, m, buildOptions)
+    pushThinkingBlocks(blocks, m, thinkingOptions)
     if (m.content) blocks.push({ type: 'text', text: m.content })
     for (const sc of localSenseCalls) {
-      let input: Record<string, unknown> = {}
-      if (sc.arguments) {
-        try {
-          input = JSON.parse(sc.arguments) as Record<string, unknown>
-        } catch {
-          input = {}
-        }
-      }
       blocks.push({
         type: 'tool_use',
         id: sc.id,
         name: sc.name ?? '',
-        input,
+        input: parseSenseArguments(sc.arguments),
       })
     }
     return { role: 'assistant', content: blocks }
@@ -654,7 +813,7 @@ function buildAnthropicMessage(
   // case 3: assistant 无 senseCalls → [thinking?, text?]
   if (m.role === 'assistant') {
     const blocks: AnthropicContentBlock[] = []
-    pushThinkingBlocks(blocks, m, buildOptions)
+    pushThinkingBlocks(blocks, m, thinkingOptions)
     if (m.content) blocks.push({ type: 'text', text: m.content })
     // 全空时用 [{text:''}] 兜底（Anthropic 拒空 content）
     if (blocks.length === 0) blocks.push({ type: 'text', text: '' })
@@ -702,17 +861,17 @@ const anthropicSenseAdapterConfig: SenseAdapter<AnthropicResponse> = {
   },
 
   senseCalls(response: AnthropicResponse): SenseCallData[] {
-    return response.content
-      .filter(
-        (b): b is { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> } =>
-          b.type === 'tool_use',
-      )
-      .map((b, index) => ({
+    const out: SenseCallData[] = []
+    for (const [index, b] of response.content.entries()) {
+      if (b.type !== 'tool_use') continue
+      out.push({
         index,
         id: b.id,
         name: b.name,
         arguments: JSON.stringify(b.input ?? {}),
-      }))
+      })
+    }
+    return out
   },
 
   /**

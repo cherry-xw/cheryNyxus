@@ -143,6 +143,7 @@ export async function* chatMiddleware(
     {
       anthropicOfficial: options.anthropicOfficial,
       protocol: options.protocol,
+      provider: options.provider,
       reasoningHistory: resolveCatalogReasoningHistory({
         model: options.model,
         provider: options.provider,
@@ -409,7 +410,7 @@ async function* handleRequestLocal(
     if (options.inputPreflight) options.inputPreflight = { ...options.inputPreflight, compactIfNeeded: autoCompactEnabled, afterCompaction: false, accepted: undefined, forcePreparation: turn === 0 && options.inputPreflight.forcePreparation }
     const readyHistory = prepared.source ? projectedHistory : applyContextCheckpoint(ctx.soul.chatId, projectedHistory)
     const build = (current: LLMResponse[], media = attachments) => messageAdapter.buildMessages(current, media, {
-      protocol: options.protocol, anthropicOfficial: options.anthropicOfficial,
+      protocol: options.protocol, anthropicOfficial: options.anthropicOfficial, provider: options.provider,
       reasoningHistory: resolveCatalogReasoningHistory({ model: options.model, provider: options.provider, protocol: options.protocol }),
     })
     let capacityOperationId: string | undefined
@@ -428,7 +429,7 @@ async function* handleRequestLocal(
     const messages = messageAdapter.buildMessages(
       readyHistory,
       attachments,
-      { anthropicOfficial: options.anthropicOfficial, protocol: options.protocol,
+      { anthropicOfficial: options.anthropicOfficial, protocol: options.protocol, provider: options.provider,
         reasoningHistory: resolveCatalogReasoningHistory({ model: options.model, provider: options.provider, protocol: options.protocol }),
       },
     )
@@ -438,6 +439,8 @@ async function* handleRequestLocal(
     let calls: SenseCallData[]
     let stopReason: string | undefined
     let hasCompletedServerTool = false
+    const serverToolDeltasAccum: ServerToolCallDelta[] = []
+    let turnSegmentsAccum: import('@/core/message/adapter.js').AssistantTurnSegment[] | undefined
     const blocks = new ThinkingBlockAssembler()
     let callCompleted = false
     try {
@@ -453,6 +456,7 @@ async function* handleRequestLocal(
           const sr = messageAdapter.extractStreamStopReason?.(raw)
           if (sr) stopReason = sr
           for (const sd of messageAdapter.extractStreamServerToolDeltas?.(raw) ?? []) {
+            serverToolDeltasAccum.push(sd)
             if (sd.kind === 'result' && sd.status === 'completed') hasCompletedServerTool = true
           }
         }
@@ -465,6 +469,9 @@ async function* handleRequestLocal(
         for (const delta of completeThinkingBlockDeltas(messageAdapter.thinkingBlocks?.(response))) blocks.push(delta)
         calls = senseAdapter.senseCalls(response)
         stopReason = messageAdapter.stopReason?.(response)
+        const nonStreamDeltas = messageAdapter.extractNonStreamServerToolDeltas?.(response)
+        if (nonStreamDeltas) serverToolDeltasAccum.push(...nonStreamDeltas)
+        turnSegmentsAccum = messageAdapter.turnSegments?.(response)
         hasCompletedServerTool = (messageAdapter.serverToolCalls?.(response) ?? []).some(
           (c) => c.status === 'completed',
         )
@@ -525,7 +532,16 @@ async function* handleRequestLocal(
     options.signal?.throwIfAborted()
     if (!calls.length || (stopReason === 'end_turn' && hasCompletedServerTool)) {
       await dispatchStop(ctx, { chatId: ctx.soul.chatId, message: content, stopReason: stopReason ?? 'end_turn' })
-      yield { type: 'stream', contentDelta: content, thinkingDelta: '' }
+      yield {
+        type: 'stream',
+        contentDelta: content,
+        thinkingDelta: thinking,
+        thinkingBlocksDelta: completeThinkingBlockDeltas(blocks.toArray()),
+        ...(calls.length > 0 ? { senseDelta: calls } : {}),
+        ...(serverToolDeltasAccum.length > 0 ? { serverToolDeltas: serverToolDeltasAccum } : {}),
+        ...(turnSegmentsAccum?.length ? { turnSegments: turnSegmentsAccum } : {}),
+        ...(stopReason ? { stopReason } : {}),
+      }
       return
     }
     const now = Date.now()
@@ -653,6 +669,7 @@ async function* handleStream(
     // 提取增量
     const thinkingDelta = messageAdapter.extractStreamThinking?.(rawChunk) || ''
     const contentDelta = messageAdapter.extractStreamDelta?.(rawChunk) || ''
+    const textSegmentDelta = messageAdapter.extractStreamTextSegment?.(rawChunk)
     const thinkingBlocksDelta: ThinkingBlockDelta[] =
       messageAdapter.extractStreamThinkingBlocks?.(rawChunk) ?? []
     const serverToolDeltas: ServerToolCallDelta[] =
@@ -674,6 +691,7 @@ async function* handleStream(
     if (
       thinkingDelta ||
       contentDelta ||
+      textSegmentDelta ||
       senseDelta.length > 0 ||
       thinkingBlocksDelta.length > 0 ||
       serverToolDeltas.length > 0 ||
@@ -683,6 +701,7 @@ async function* handleStream(
         type: 'stream',
         thinkingDelta,
         contentDelta,
+        ...(textSegmentDelta ? { textSegmentDelta } : {}),
         senseDelta: senseDelta.length > 0 ? senseDelta : undefined,
         thinkingBlocksDelta: thinkingBlocksDelta.length > 0 ? thinkingBlocksDelta : undefined,
         serverToolDeltas: serverToolDeltas.length > 0 ? serverToolDeltas : undefined,
@@ -753,33 +772,36 @@ async function* handleNonStream(
   const thinking = messageAdapter.thinking?.(response)
   const thinkingBlocks = messageAdapter.thinkingBlocks?.(response)
   const stopReason = messageAdapter.stopReason?.(response)
+  const turnSegments = messageAdapter.turnSegments?.(response)
   const serverToolCalls = messageAdapter.serverToolCalls?.(response) ?? []
-  const serverToolDeltas: ServerToolCallDelta[] = serverToolCalls.flatMap((c): ServerToolCallDelta[] => [
-    {
-      kind: 'start',
-      index: c.index ?? 0,
-      id: c.id,
-      name: c.name,
-      arguments: c.arguments,
-      status: c.status,
-      ...(c.protocol ? { protocol: c.protocol } : {}),
-      ...(c.responseId ? { responseId: c.responseId } : {}),
-    },
-    ...(c.result !== undefined || c.error !== undefined || c.sources
-      ? [
-          {
-            kind: 'result' as const,
-            index: c.index ?? 0,
-            callId: c.id,
-            name: c.name,
-            result: c.result,
-            ...(c.error ? { error: c.error } : {}),
-            status: c.status === 'failed' ? ('failed' as const) : ('completed' as const),
-            ...(c.sources ? { sources: c.sources } : {}),
-          },
-        ]
-      : []),
-  ])
+  const serverToolDeltas: ServerToolCallDelta[] =
+    messageAdapter.extractNonStreamServerToolDeltas?.(response) ??
+    serverToolCalls.flatMap((c): ServerToolCallDelta[] => [
+      {
+        kind: 'start',
+        index: c.index ?? 0,
+        id: c.id,
+        name: c.name,
+        arguments: c.arguments,
+        status: c.status,
+        ...(c.protocol ? { protocol: c.protocol } : {}),
+        ...(c.responseId ? { responseId: c.responseId } : {}),
+      },
+      ...(c.result !== undefined || c.error !== undefined || c.sources
+        ? [
+            {
+              kind: 'result' as const,
+              index: c.index ?? 0,
+              callId: c.id,
+              name: c.name,
+              result: c.result,
+              ...(c.error ? { error: c.error } : {}),
+              status: c.status === 'failed' ? ('failed' as const) : ('completed' as const),
+              ...(c.sources ? { sources: c.sources } : {}),
+            },
+          ]
+        : []),
+    ])
 
   // 提取 sense calls（非流式为完整数据）
   const senseDelta = senseAdapter.senseCalls(response)
@@ -821,6 +843,7 @@ async function* handleNonStream(
       contentDelta: content || '',
       senseDelta: senseDelta.length > 0 ? senseDelta : undefined,
       serverToolDeltas: serverToolDeltas.length > 0 ? serverToolDeltas : undefined,
+      ...(turnSegments?.length ? { turnSegments } : {}),
       ...(stopReason ? { stopReason } : {}),
     }
 }

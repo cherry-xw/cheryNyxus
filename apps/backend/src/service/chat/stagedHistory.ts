@@ -67,10 +67,23 @@ export function messagesToStagedEvents(chatId: string): Chunk[] {
         ),
       )
     }
-    if (parsedMsg.role !== 'sense' && parsedMsg.senseCall && parsedMsg.senseCall.length > 0) {
-      for (const sc of parsedMsg.senseCall) {
-        chunks.push(
-          createChunk(
+    if (
+      parsedMsg.role !== 'sense' &&
+      ((parsedMsg.senseCall && parsedMsg.senseCall.length > 0) ||
+        (parsedMsg.serverToolCalls && parsedMsg.serverToolCalls.length > 0))
+    ) {
+      const senseCallIndices =
+        parsedMsg.providerContinuation?.senseCallIndices &&
+        typeof parsedMsg.providerContinuation.senseCallIndices === 'object'
+          ? (parsedMsg.providerContinuation.senseCallIndices as Record<string, number>)
+          : undefined
+      const localCount = parsedMsg.senseCall?.length ?? 0
+      const orderedToolChunks: Array<{ index: number; id: string; chunk: Chunk }> = []
+      for (const [fallbackIndex, sc] of (parsedMsg.senseCall ?? []).entries()) {
+        orderedToolChunks.push({
+          index: sc.index ?? senseCallIndices?.[sc.id] ?? fallbackIndex,
+          id: sc.id,
+          chunk: createChunk(
             'staged',
             '',
             {
@@ -84,17 +97,13 @@ export function messagesToStagedEvents(chatId: string): Chunk[] {
             },
             { chatId },
           ),
-        )
+        })
       }
-    }
-    if (
-      parsedMsg.role !== 'sense' &&
-      parsedMsg.serverToolCalls &&
-      parsedMsg.serverToolCalls.length > 0
-    ) {
-      for (const stc of parsedMsg.serverToolCalls) {
-        chunks.push(
-          createChunk(
+      for (const [idx, stc] of (parsedMsg.serverToolCalls ?? []).entries()) {
+        orderedToolChunks.push({
+          index: stc.index ?? localCount + idx,
+          id: stc.id,
+          chunk: createChunk(
             'staged',
             '',
             {
@@ -115,7 +124,11 @@ export function messagesToStagedEvents(chatId: string): Chunk[] {
             },
             { chatId },
           ),
-        )
+        })
+      }
+      orderedToolChunks.sort((a, b) => a.index - b.index || a.id.localeCompare(b.id))
+      for (const item of orderedToolChunks) {
+        chunks.push(item.chunk)
       }
     }
   }

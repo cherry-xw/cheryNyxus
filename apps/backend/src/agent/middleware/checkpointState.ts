@@ -8,6 +8,9 @@ import type {
 } from '@/core/middleware/types'
 import type { SenseCallData } from '@/core/sense/adapter'
 import type {
+  AssistantTurnSegment,
+  ProtectedServerToolBlock,
+  ProtectedServerToolContinuation,
   SenseCallInfo,
   ServerToolCallDelta,
   ServerToolCallInfo,
@@ -51,6 +54,9 @@ export class CheckpointState {
   private flushedAssistantSenseCalls: NonNullable<AgentMessage['senseCalls']> = []
   private flushedAssistantServerToolCalls: ServerToolCallInfo[] = []
   private serverToolDeltas: ServerToolCallDelta[] = []
+  private readonly textSegments = new Map<number, string>()
+  private readonly thinkingIndices = new Map<number, string>()
+  private explicitTurnSegments: AssistantTurnSegment[] | undefined
   private stopReason: string | undefined
   /** callId → 安全授权判定（checkpoint 在 sense_end 收到 trigger 时注入；构造 senseCalls 落库用）。
    *  callId 与 senseDelta 合并产出的 sc.id 同源（同一 SenseCallAssembler 处理同一条 delta 流）。 */
@@ -115,6 +121,69 @@ export class CheckpointState {
     return calls
   }
 
+  private buildTurnSegments(serverToolCalls: ServerToolCallInfo[]): AssistantTurnSegment[] {
+    if (this.explicitTurnSegments && this.explicitTurnSegments.length > 0) {
+      return this.explicitTurnSegments
+    }
+    const segments: AssistantTurnSegment[] = []
+    const usedIndices = new Set<number>()
+    for (const [index, text] of this.thinkingIndices.entries()) {
+      usedIndices.add(index)
+      segments.push({ index, kind: 'thinking', ...(text ? { text } : {}) })
+    }
+    for (const [index, text] of this.textSegments.entries()) {
+      usedIndices.add(index)
+      segments.push({ index, kind: 'text', text })
+    }
+    for (const call of serverToolCalls) {
+      if (call.status === 'skipped-local' || call.index === undefined) continue
+      if (!usedIndices.has(call.index)) {
+        usedIndices.add(call.index)
+        segments.push({ index: call.index, kind: 'server_tool', callId: call.id })
+      }
+    }
+    for (const sc of mergeSenseDeltas(this.senseDeltas)) {
+      if (!sc.name || sc.index === undefined) continue
+      if (!usedIndices.has(sc.index)) {
+        usedIndices.add(sc.index)
+        segments.push({ index: sc.index, kind: 'sense_call', callId: sc.id })
+      }
+    }
+    return segments.sort((a, b) => a.index - b.index)
+  }
+
+  private buildProviderContinuation(
+    ctx: MiddlewareContext,
+    serverToolCalls: ServerToolCallInfo[],
+  ): Record<string, unknown> | undefined {
+    const provider = ctx.runtime?.brain.provider
+    const serverToolContinuation = buildProtectedServerToolContinuation(
+      this.serverToolDeltas,
+      provider,
+    )
+    const senseCallIndices: Record<string, number> = {}
+    for (const sc of mergeSenseDeltas(this.senseDeltas)) {
+      if (sc.id && sc.index !== undefined) {
+        senseCallIndices[sc.id] = sc.index
+      }
+    }
+    const turnSegments = this.buildTurnSegments(serverToolCalls)
+    const hasInterleavedOrder =
+      serverToolCalls.length > 0 ||
+      serverToolContinuation !== undefined ||
+      this.explicitTurnSegments !== undefined ||
+      this.textSegments.size > 0 ||
+      this.thinkingIndices.size > 0 ||
+      Object.values(senseCallIndices).some((idx) => idx > 0)
+    if (!hasInterleavedOrder) return undefined
+    return {
+      ...(provider ? { provider } : {}),
+      ...(serverToolContinuation ? { serverToolContinuation } : {}),
+      ...(turnSegments.length > 0 ? { turnSegments } : {}),
+      ...(Object.keys(senseCallIndices).length > 0 ? { senseCallIndices } : {}),
+    }
+  }
+
   /**
    * 摄入 chunk，更新内部状态
    */
@@ -122,6 +191,8 @@ export class CheckpointState {
     type: string
     thinkingDelta?: string
     contentDelta?: string
+    textSegmentDelta?: { index: number; text: string }
+    turnSegments?: AssistantTurnSegment[]
     senseDelta?: SenseCallData[]
     thinkingBlocksDelta?: ThinkingBlockDelta[]
     serverToolDeltas?: ServerToolCallDelta[]
@@ -138,9 +209,29 @@ export class CheckpointState {
       case 'stream':
         this.thinking += chunk.thinkingDelta ?? ''
         if (chunk.thinkingBlocksDelta && chunk.thinkingBlocksDelta.length > 0) {
-          for (const op of chunk.thinkingBlocksDelta) this.thinkingBlockAssembler.push(op)
+          for (const op of chunk.thinkingBlocksDelta) {
+            this.thinkingBlockAssembler.push(op)
+            if (op.kind === 'start') {
+              this.thinkingIndices.set(op.index, this.thinkingIndices.get(op.index) ?? '')
+            } else if (op.kind === 'thinking_delta') {
+              this.thinkingIndices.set(
+                op.index,
+                (this.thinkingIndices.get(op.index) ?? '') + op.thinking,
+              )
+            }
+          }
         }
         this.content += chunk.contentDelta ?? ''
+        if (chunk.textSegmentDelta) {
+          this.textSegments.set(
+            chunk.textSegmentDelta.index,
+            (this.textSegments.get(chunk.textSegmentDelta.index) ?? '') +
+              chunk.textSegmentDelta.text,
+          )
+        }
+        if (chunk.turnSegments && chunk.turnSegments.length > 0) {
+          this.explicitTurnSegments = chunk.turnSegments
+        }
         if (chunk.senseDelta) {
           this.senseDeltas.push(...chunk.senseDelta)
         }
@@ -167,6 +258,9 @@ export class CheckpointState {
     this.senseDeltas = []
     this.senseResults = []
     this.serverToolDeltas = []
+    this.textSegments.clear()
+    this.thinkingIndices.clear()
+    this.explicitTurnSegments = undefined
     this.stopReason = undefined
     this.thinkingBlockAssembler = new ThinkingBlockAssembler()
     this.thinkingBlocks = []
@@ -207,6 +301,7 @@ export class CheckpointState {
       return null
 
     const senseCalls = this.buildSenseCalls()
+    const providerContinuation = this.buildProviderContinuation(ctx, serverToolCalls)
     // 快照思考块（flush 后不再变化，供 reconcile 时引用）
     this.thinkingBlocks = this.thinkingBlockAssembler.toArray()
     const message = ctx.journal.appendAssistant(
@@ -216,6 +311,7 @@ export class CheckpointState {
         thinkingBlocks: this.thinkingBlocks.length > 0 ? this.thinkingBlocks : undefined,
         senseCalls,
         ...(serverToolCalls.length > 0 ? { serverToolCalls } : {}),
+        ...(providerContinuation ? { providerContinuation } : {}),
       },
       this.assistantId,
     )
@@ -282,6 +378,7 @@ export class CheckpointState {
         this.timeoutMs !== null)
     ) {
       const senseCalls = this.buildSenseCalls()
+      const providerContinuation = this.buildProviderContinuation(ctx, serverToolCalls)
       this.thinkingBlocks = this.thinkingBlockAssembler.toArray()
       const message = ctx.journal.appendAssistant(
         {
@@ -293,6 +390,7 @@ export class CheckpointState {
           thinkingBlocks: this.thinkingBlocks.length > 0 ? this.thinkingBlocks : undefined,
           senseCalls,
           ...(serverToolCalls.length > 0 ? { serverToolCalls } : {}),
+          ...(providerContinuation ? { providerContinuation } : {}),
           ...(this.timeoutMs !== null ? { modelExcluded: true } : {}),
         },
         this.assistantId,
@@ -484,6 +582,82 @@ export function mergeServerToolDeltas(deltas: ServerToolCallDelta[]): ServerTool
   }
 
   return result
+}
+
+export function buildProtectedServerToolContinuation(
+  deltas: ServerToolCallDelta[],
+  provider?: string,
+): ProtectedServerToolContinuation | undefined {
+  if (deltas.length === 0) return undefined
+  const startByIndex = new Map<
+    number,
+    {
+      id: string
+      protocol?: string
+      responseId?: string
+      rawArgs: string
+      rawBlock?: Record<string, unknown>
+    }
+  >()
+  const indexById = new Map<string, number>()
+  const resultBlocks = new Map<number, Record<string, unknown>>()
+  let protocol: string | undefined
+  let responseId: string | undefined
+
+  for (const d of deltas) {
+    if (d.kind === 'start') {
+      if (d.protocol) protocol = d.protocol
+      if (d.responseId) responseId = d.responseId
+      indexById.set(d.id, d.index)
+      const existing = startByIndex.get(d.index)
+      if (existing) {
+        if (d.rawBlock) existing.rawBlock = structuredClone(d.rawBlock)
+      } else {
+        startByIndex.set(d.index, {
+          id: d.id,
+          protocol: d.protocol,
+          responseId: d.responseId,
+          rawArgs: '',
+          rawBlock: d.rawBlock ? structuredClone(d.rawBlock) : undefined,
+        })
+      }
+      continue
+    }
+    if (d.kind === 'arguments_delta') {
+      const idx = d.id !== undefined ? (indexById.get(d.id) ?? d.index) : d.index
+      const start = startByIndex.get(idx)
+      if (start) start.rawArgs += d.argumentsDelta
+      continue
+    }
+    if (d.kind === 'result' && d.rawBlock) {
+      resultBlocks.set(d.index, structuredClone(d.rawBlock))
+    }
+  }
+
+  const blocks: ProtectedServerToolBlock[] = []
+  for (const [index, entry] of startByIndex.entries()) {
+    if (!entry.rawBlock) continue
+    const block = structuredClone(entry.rawBlock)
+    if (entry.rawArgs.trim() && block.type === 'server_tool_use') {
+      try {
+        block.input = JSON.parse(entry.rawArgs) as Record<string, unknown>
+      } catch {
+        // retain initial input if rawArgs is partial due to stream interruption
+      }
+    }
+    blocks.push({ index, block })
+  }
+  for (const [index, block] of resultBlocks.entries()) {
+    blocks.push({ index, block })
+  }
+  blocks.sort((a, b) => a.index - b.index)
+  if (blocks.length === 0) return undefined
+  return {
+    ...(provider ? { provider } : {}),
+    protocol: protocol ?? 'anthropic-messages',
+    ...(responseId ? { responseId } : {}),
+    blocks,
+  }
 }
 
 function sameSenseCalls(

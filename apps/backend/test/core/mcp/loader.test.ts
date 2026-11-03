@@ -413,5 +413,59 @@ describe('MCP loader', () => {
       const info = await mod.connectMcpServerByName('failPrompt')
       expect(info.status).toBe('connected')
     })
+
+    it('follows nextCursor pagination and keeps last list with stale flag when refresh fails', async () => {
+      mockConfig.mcp_servers = { paged: stdioCfg }
+      const mod = await import('@/core/mcp/loader.js')
+      const { connectMcpServer } = await import('@/core/mcp/client.js')
+      const pagedClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        getServerCapabilities: vi.fn().mockReturnValue({ tools: {} }),
+        listTools: vi
+          .fn()
+          .mockResolvedValueOnce({
+            tools: [{ name: 'page_one_tool', description: 'First page' }],
+            nextCursor: 'cursor-2',
+          })
+          .mockResolvedValueOnce({
+            tools: [{ name: 'page_two_tool', description: 'Second page' }],
+          })
+          .mockRejectedValueOnce(new Error('temporary outage'))
+          .mockResolvedValueOnce({
+            tools: [{ name: 'refreshed_tool', description: 'Refreshed' }],
+          }),
+        listResources: vi.fn().mockResolvedValue({ resources: [] }),
+        listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
+      }
+      vi.mocked(connectMcpServer).mockResolvedValueOnce({
+        name: 'paged',
+        client: pagedClient as any,
+        close: pagedClient.close,
+      })
+
+      const connected = await mod.connectMcpServerByName('paged')
+      expect(connected.status).toBe('connected')
+      expect(connected.senseNames).toEqual([
+        'mcp__paged__page_one_tool',
+        'mcp__paged__page_two_tool',
+      ])
+      expect(pagedClient.listTools).toHaveBeenNthCalledWith(1)
+      expect(pagedClient.listTools).toHaveBeenNthCalledWith(2, { cursor: 'cursor-2' })
+
+      // Refresh failure keeps previous tool list and marks stale=true
+      const staleInfo = await mod.refreshMcpServerTools('paged')
+      expect(staleInfo.status).toBe('connected')
+      expect(staleInfo.stale).toBe(true)
+      expect(staleInfo.senseNames).toEqual([
+        'mcp__paged__page_one_tool',
+        'mcp__paged__page_two_tool',
+      ])
+
+      // Subsequent list_changed notification or manual refresh recovers and clears stale
+      const refreshedInfo = await mod.refreshMcpServerTools('paged')
+      expect(refreshedInfo.stale).toBeUndefined()
+      expect(refreshedInfo.senseNames).toEqual(['mcp__paged__refreshed_tool'])
+    })
   })
 })

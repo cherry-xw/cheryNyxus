@@ -343,6 +343,11 @@ function buildTimelineCandidates(
         actor = actorForAgent(rootChatId)
         direction = 'agent-to-user'
       }
+      const senseCallIndices =
+        parsed.providerContinuation?.senseCallIndices &&
+        typeof parsed.providerContinuation.senseCallIndices === 'object'
+          ? (parsed.providerContinuation.senseCallIndices as Record<string, number>)
+          : undefined
       const localSenseCalls: GraphToolCall[] = (parsed.senseCall ?? []).map(
         (call, fallbackIndex) => {
           const result = rows.find((candidate) => candidate.id === call.id)
@@ -350,7 +355,7 @@ function buildTimelineCandidates(
           const childMatches = childBySpawnCall.get(call.id) ?? []
           return {
             callId: call.id,
-            index: call.index ?? fallbackIndex,
+            index: call.index ?? senseCallIndices?.[call.id] ?? fallbackIndex,
             name: call.name ?? '',
             arguments: call.arguments,
             ...(result ? { result: result.content ?? '' } : {}),

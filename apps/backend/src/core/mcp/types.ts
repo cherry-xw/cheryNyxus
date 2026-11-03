@@ -58,6 +58,8 @@ export interface McpServerInfo {
   /** Connection availability and candidate adoption are independent. */
   applyStatus?: 'applied' | 'pending' | 'failed'
   applyReason?: string
+  /** 工具列表刷新失败但连接仍保留上次已发现列表时为 true */
+  stale?: boolean
 }
 
 /**
