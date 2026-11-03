@@ -1,0 +1,88 @@
+{
+  "executedAt": "2026-11-02T10:20:26.033Z",
+  "chatId": "live-drawing-e2ed6ad1-67bd-4564-a024-14dc868b081e",
+  "ownerId": "manager-internal",
+  "steps": {
+    "step0_http_permissions": {
+      "ownChatStatus": 200,
+      "foreignOwnerStatus": 403,
+      "foreignOwnerError": {
+        "code": "file.permission_denied",
+        "message": "文件操作权限不足，请检查访问与存储权限。"
+      }
+    },
+    "step1_round1_multi_image": {
+      "taskId": "8332406d-ea04-453d-b73a-e2670293f8f0",
+      "roundId": "c3cb990e-905b-4d54-bd0d-0d4019265fd9",
+      "operationId": "ec669377-e6a5-4912-8ec2-d659f6582c96",
+      "executionStatus": "partial",
+      "deliveryStatus": "saved",
+      "error": {
+        "code": "file_service.output_incomplete",
+        "message": "请求 2 张图片，实际取得 1 张；服务未提供不足原因。不会自动重新生成缺失图片",
+        "retryable": false
+      },
+      "imageCount": {
+        "desiredCount": 2,
+        "countControl": "requested",
+        "nativeMultiImage": "supported",
+        "effectiveMaximum": 10,
+        "effectiveCount": 2
+      },
+      "receivedImageCount": 1,
+      "savedImageCount": 1,
+      "candidates": [
+        {
+          "candidateId": "c3cb990e-905b-4d54-bd0d-0d4019265fd9:ec669377-e6a5-4912-8ec2-d659f6582c96:0",
+          "assetId": "19fb968e-3154-4132-a956-9ef0380e7eea",
+          "assetVersionId": "2d2df519-c05f-4f71-b306-ddd27954440c",
+          "bytes": 1082335,
+          "sha256": "9014473237f3a4691866909ac293726f44888d8db611dadde13acbefbf7c5e80"
+        }
+      ]
+    },
+    "step2_round2_edit_candidate": {
+      "roundId": "4789da0a-d18b-4a3f-a6c5-5a1b85457da7",
+      "sourceCandidateId": "c3cb990e-905b-4d54-bd0d-0d4019265fd9:ec669377-e6a5-4912-8ec2-d659f6582c96:0",
+      "operationId": "e08db8f8-ff43-40ee-93a4-88c255284ee8",
+      "executionStatus": "succeeded",
+      "deliveryStatus": "saved",
+      "savedImageCount": 1,
+      "newCandidate": {
+        "candidateId": "4789da0a-d18b-4a3f-a6c5-5a1b85457da7:e08db8f8-ff43-40ee-93a4-88c255284ee8:0",
+        "assetId": "ba0ae416-e9d8-4c67-85dd-687dfb9a11cc",
+        "assetVersionId": "9b87abc9-ab14-44fd-838f-2b8fc682464d",
+        "bytes": 1382972,
+        "sha256": "a498c316ad45319c95374a3ce43b03beed6b12b915d3f56e1288c4dd70a0f6eb"
+      }
+    },
+    "step3_finalize_and_conflict": {
+      "finalizedCandidateId": "4789da0a-d18b-4a3f-a6c5-5a1b85457da7:e08db8f8-ff43-40ee-93a4-88c255284ee8:0",
+      "newSelectionRevision": 1,
+      "idempotentRetryStatus": 200,
+      "staleConflictStatus": 409,
+      "staleConflictError": {
+        "code": "file.state_conflict",
+        "message": "操作状态已改变，请刷新确认后再决定下一步。"
+      }
+    },
+    "step4_responses_image_and_finalize_preservation": {
+      "roundId": "691c8606-d04f-477f-8383-db628d97c6d1",
+      "operationId": "475bfad9-f0cf-4b0f-a406-431801be26f1",
+      "remoteJobId": "resp_09629e8f8cafa0e8016ae8641ddd0087d0a6efda34a481143b",
+      "executionStatus": "succeeded",
+      "deliveryStatus": "saved",
+      "savedImageCount": 1,
+      "preservedFinalCandidateId": "4789da0a-d18b-4a3f-a6c5-5a1b85457da7:e08db8f8-ff43-40ee-93a4-88c255284ee8:0",
+      "hasPrivateContinuationInDb": true,
+      "leakedContinuationInHttp": false,
+      "newCandidate": {
+        "candidateId": "691c8606-d04f-477f-8383-db628d97c6d1:475bfad9-f0cf-4b0f-a406-431801be26f1:0",
+        "assetId": "e4c4e6a7-64e9-47c7-988d-f0f2bfcbd1f0",
+        "assetVersionId": "ebb8a98d-0818-4c47-a299-9f28c70ca92e",
+        "bytes": 1059540,
+        "sha256": "542f8d9eb250b53dbd34f6d5b665fb1a87b48c8204ca5714e4c566039b7dbbac"
+      }
+    }
+  }
+}

@@ -8,7 +8,7 @@
 | [万象台](wanxiangtai/README.md)                                                | 规划中     | 多 Agent 团队协作、独立工作区、交付集成与桌面呈现              |
 | [上下文统计、待办进度与连续消息交互](conversation-observability-and-input/README.md) | 规划中 | 工作台三模式统计、待办进度与连续消息采用策略初稿待讨论确认；QQ 来源与上下文专题已收口归档 |
 | [文件权限与交付验收](file-access-and-delivery/README.md) | 待综合验证 | 跨账号与登录权限、QQ 文件/普通回复、工作区导入导出及交付恢复 |
-| [图片服务与会话绘图验收](image-services-and-drawing/README.md) | 执行中 | Imagen 可用接入、各厂商真实验证、多轮选图/定稿及首次查询 400 |
+| [图片服务与会话绘图验收](image-services-and-drawing/README.md) | 执行中 | Imagen 破坏性移除、OpenAI Images/Responses 真实验证与多轮定稿已完成，跨所有者查询修复为 403；剩余原生厂商与界面待补验 |
 | [服务端工具完整流程](server-tools-completion/README.md) | 执行中 | 真实任务验证管理、完整有序事件、受保护续接及 GLM/GPT 产品多轮 |
 
 ## 使用规则

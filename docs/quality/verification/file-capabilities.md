@@ -56,7 +56,9 @@
 
 草稿已完成附件预览、失败查询停止自动重复的固定 Web 发布证据位于 `/home/chery/docker/cherynyxus/releases/file-draft-fix-20261021/`：`verification/web-results.json`、`regression-before.*`、`source-manifest.json`、`image-comparison.json`、`deployment-result.json` 和配置/凭据/入口保护记录。原版本为 `cherynyxus-runtime:file-draft-fix-20261021`，后续已叠加发布，不冒充实时版本；维护命令归该目录 README，原六份 Compose 清单加本目录 `release.yaml` 不能省略。
 
-首次 `POST /api/file-services/drawings` 400 缺同一次原始请求与响应，原因未定位。空绘图列表查询不要求配置服务，不能推测无服务、GIF 或权限是原因；停止重复查询不代表首次拒绝已解决，后续定位归[ID05](../../plan/image-services-and-drawing/README.md#小任务台账)。
+首次 `POST /api/file-services/drawings` 400 的根因已由[ID05](../../plan/image-services-and-drawing/README.md#小任务台账)查明并修复：生产 `minimax预设` 最新根会话的 `fileOwnerId` 为 `cherynyxus-qq-module`，浏览器以 `manager-internal` 查询时原 `fileAccessForChat` 抛出无 `code` 异常被映射为 400 `file.operation_rejected`；现已附加 `code: 'EACCES'` 并返回 403 `file.permission_denied`。
+
+2026-11-02 基于 `https://ai.xcherry.top` 网关完成了 `openai-images`（`gpt-image-2`）与 `openai-responses-image`（`gpt-5.6-sol` + `image_model: gpt-image-2`，移除上游拒绝的 `max_tool_calls`）的真实生成、部分产出（`desiredCount: 2` 返回 1 张保存为 `partial` 且不自动补图）、选图编辑（`image.edit`）、用户定稿（`selectionRevision=1`）、幂等重试（200）、过期版本冲突（409 `file.state_conflict`）及定稿后第 3 轮继续生成保留原 `finalCandidateId` 的实测；生产容器 `cherynyxus-backend-1` 核实安装 Sharp `0.35.5`（libvips `8.18.7`）。执行脚本与结果见 [docs/plan/image-services-and-drawing/README.md](../../plan/image-services-and-drawing/README.md)。
 
 合规原图直接复用时，前端现按返回版本标识引用，不再把原版本误标为 adapted。7B 用户反馈和固定版本证据在 `/home/chery/docker/cherynyxus/releases/image-variant-reuse-fix-20261022/step8-batch7b-history-card-check.json`：`360.gif`、版本 `a6a0fc04-7719-41f1-9dbb-89d9077faa94`、`original`，请求 `completed/omit`、`binaryBytes=0`。仅说明该附件未读入，不代表没有文字模型调用。
 

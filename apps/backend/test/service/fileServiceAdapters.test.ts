@@ -146,6 +146,7 @@ describe('文件服务 HTTP 适配器', () => {
     expect(body.previous_response_id).toBe('resp-1')
     expect(body.tools).toEqual([{ type: 'image_generation', action: 'edit' }])
     expect(body.store).toBe(true)
+    expect(body).not.toHaveProperty('max_tool_calls')
   })
 
   it('Responses 纯文字拒绝不伪造图片；异步未完成状态不报成功', async () => {

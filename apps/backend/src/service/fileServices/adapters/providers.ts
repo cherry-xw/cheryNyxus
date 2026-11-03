@@ -117,7 +117,6 @@ export async function openaiResponses(input: FileServiceAdapterInput, p: Record<
     input: [{ role: 'user', content }],
     tools: [{ type: 'image_generation', ...(image_model ? { model: image_model } : {}), ...toolParams, action: p.action ?? action }],
     tool_choice: { type: 'image_generation' },
-    max_tool_calls: 1,
     parallel_tool_calls: false,
     store: true,
     ...(previousId ? { previous_response_id: previousId } : {}),

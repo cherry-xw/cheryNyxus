@@ -52,9 +52,8 @@ Responses 顶层是对话模型，实际图片型号来自 `image_model`；`ep-*
 | Gemini `generateContent` | [图像指南](https://ai.google.dev/gemini-api/docs/image-generation.md.txt)不保证按要求返回张数；`candidateCount` 不等于图片数，14 张参考图也非输出上限。保留各 candidate 最终图，多 candidate 不造共用私有续接；单次控制与上限仍需补证据 |
 | Seedream 5.0 pro/flash | [官方 API](https://ark.volcengine.com/docs/image-generation-api.md)固定单图，不发送组图字段。图层拆分不是候选图，当前不支持图层结果契约 |
 | Seedream 5.0 lite/4.5/4.0 | `auto + max_images=1–15` 控制最多几张，参考与输出合计 ≤15；`disabled` 仅 1。仅为数量依据，型号 ID 与其他参数/实际可用性另核 |
-| Imagen | [Gemini 入口](https://ai.google.dev/gemini-api/docs/imagen)摘录显示已关闭；[Vertex Imagen 4](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/imagen/4-0-generate)摘录列最多 4，同时 001 标注 2026-06-30 停用。`sampleCount` schema 1–4 不能证明 Ultra 上限，本地仍限 1；必须核实有效项目、地区、型号和完整端点，不推荐停用型号或用 Gemini 替代 |
 
-完整多轮必须有真实参考/编辑方式，不能用 MiniMax 人物参考或 Imagen 文生图冒充通用修改。用户允许 Imagen 单独阻塞，其他已确认产品代码与离线验证先实施；实际迁移、生成、部署和界面权限仍分别核对。
+完整多轮必须有真实参考/编辑方式，不能用 MiniMax 人物参考冒充通用修改。Google Imagen 因 Gemini API 入口已关闭且 Vertex AI `imagen-4.0-*-001` 已于 2026-06-30 退役，按用户确认方案 1A 已从协议、目录与后端执行器破坏性移除。
 
 ### 1.5 收到、保存与失败分开
 
@@ -152,8 +151,10 @@ Responses 顶层是对话模型，实际图片型号来自 `image_model`；`ep-*
 
 这些跨角色、保存重试与引用清理的组合由[文件权限与交付验收](../file-access-and-delivery/README.md#必须保留的行为与组合检查)共同承担；职责各自明确，不产生第二份配置或文件存储。完整需求核对后才集中测试；离线、真实服务、生产依赖和用户交互分别有结论。
 
-## 6. 首次查询异常的取证准备
+## 6. 首次查询异常根因与跨所有者权限边界
 
-ID05 缺少首次 400 的原始请求/响应和同次后端记录，不能重建猜测请求作为原因证明。后续正常使用如复现，由执行者在获准范围内保存时间、请求路径、调用目的、脱敏请求体、认证是否存在、状态码、错误 code/字段与关联标识，再匹配后端日志和当时固定源码；不保存 Cookie、令牌、文件字节或无关业务正文。
-
-区分空列表查询、带过滤查询与创建绘图轮，不因都是 POST 就认为触发了生成。先核对实际入口及参数校验，再查身份/会话权限；空列表没有服务不是拒绝理由。当前失败后停止重复只能证明请求控制行为，不能证明首次拒绝修复。需要额外请求、配置写入、生成或服务操作时先取得具体授权，不以取证准备自动执行。
+生产环境首次 `POST http://10.2.3.6:8283/api/file-services/drawings` 返回 HTTP `400`（`file.operation_rejected`）的根因已查明：
+- 生产 SQLite 中 `minimax预设` 的最新根会话由 QQ 插件入口创建，`metadata.fileOwnerId` 为 `"cherynyxus-qq-module"`。
+- 浏览器工作台以 `ownerId = "manager-internal"` 认证并在加载舞台会话时查询该会话的绘图记录。
+- `fileAccessForChat` 检测到 `stored !== ownerId` 抛出无 `code` 的 `Error('无权访问此会话的文件')`，被 `publicFileHttpFailure` 兜底映射为 HTTP `400`（`file.operation_rejected`，提示“不要重复提交结果未知的生成请求”）。
+- 修复后 `fileAccessForChat` 在跨所有者拒绝时附加 `code: 'EACCES'`，`publicFileHttpFailure` 精确返回 HTTP `403`（`file.permission_denied`：“文件操作权限不足，请检查访问与存储权限。”），区分空列表查询、权限隔离与生成请求失败。
