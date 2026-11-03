@@ -1724,20 +1724,6 @@ models:
           image: supported
           video: unsupported
           audio: unsupported
-  - id: google-imagen-4
-    match:
-      models:
-        - { regex: '(?:^|[/_.:-])imagen[-_.]?4[._-]?0(?:[-_.](?:fast|ultra))?[-_.]?generate[-_.]?001(?:$|[-_/:])', flags: i }
-    facts:
-      capabilities:
-        toolCall: false
-        input: { image: unsupported, video: unsupported, audio: unsupported, pdf: unsupported }
-        output: { image: supported, video: unsupported, audio: unsupported }
-    recommend:
-      capabilities:
-        toolCall: false
-        input: { image: unsupported, video: unsupported, audio: unsupported, pdf: unsupported }
-        output: { image: supported, video: unsupported, audio: unsupported }
 
   - id: openai-gpt-image
     match:

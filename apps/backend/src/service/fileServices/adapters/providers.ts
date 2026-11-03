@@ -201,28 +201,6 @@ export async function gemini(input: FileServiceAdapterInput, p: Record<string, u
   }
 }
 
-export async function imagen(input: FileServiceAdapterInput, p: Record<string, unknown>, ctx: AdapterHttpContext): Promise<FileServiceAdapterOutput> {
-  if (input.operation !== 'image.generate' || input.assets.length) invalid('Imagen 文生图接口不支持参考图片或编辑')
-  if (!input.connection.endpoints?.[input.operation] || input.connection.authType !== 'bearer') invalid('Gemini API 的 Imagen 已停用。Vertex AI Imagen 需要明确填写项目/地区完整 predict 端点并选择 Bearer 访问令牌认证')
-  const { prompt, ...parameters } = p
-  const model = encodeURIComponent(input.connection.model.replace(/^models\//, ''))
-  const response = await ctx.request(endpoint(input, `models/${model}:predict`, 'v1beta'), {
-    instances: [{ prompt }], parameters,
-  }, true)
-  const parts: FileServiceAdapterPart[] = []
-  for (const raw of array(response.predictions)) {
-    const item = record(raw)
-    if (item.raiFilteredReason) {
-      ctx.reportedFailedImageCount = (ctx.reportedFailedImageCount ?? 0) + 1
-      parts.push(ctx.failed('file_service.provider_error', '此图片被服务商的内容检查阻止', parts.length))
-      continue
-    }
-    if (typeof item.mimeType !== 'string') malformed('Imagen 输出缺少 mimeType')
-    parts.push(ctx.file(item.bytesBase64Encoded, item.mimeType, parts.length))
-  }
-  return output(parts, response)
-}
-
 export async function seedream(input: FileServiceAdapterInput, p: Record<string, unknown>, ctx: AdapterHttpContext): Promise<FileServiceAdapterOutput> {
   const modernSingle = /^doubao-seedream-5-0-(pro|flash)(?:-|$)/.test(input.connection.model)
   if (p.background === 'transparent' && (input.operation === 'image.generate' || input.assets.length !== 1 || input.assets[0]!.mimeType !== 'image/png')) invalid('Seedream 透明输出需要显式提供单张带透明通道的 PNG 参考图；透明通道由服务方校验')
@@ -248,7 +226,6 @@ export const providerExecutors = {
   'openai-images': openaiImages,
   'openai-responses-image': openaiResponses,
   'google-gemini-image': gemini,
-  'google-imagen': imagen,
   'doubao-seedream': seedream,
 }
 
@@ -256,7 +233,6 @@ export function assertInput(input: FileServiceAdapterInput): void {
   if (!Object.hasOwn(providerExecutors, input.adapter)) throw new FileServiceAdapterError('capability.unavailable', '未实现此 HTTP 文件适配器')
   if (!['image.generate', 'image.reference', 'image.edit'].includes(input.operation)) invalid('此适配器只支持已声明的图片生成、参考或编辑操作')
   if (input.adapter === 'minimax-images' && input.operation === 'image.edit') invalid('MiniMax 不支持通用编辑')
-  if (input.adapter === 'google-imagen' && input.operation !== 'image.generate') invalid('Imagen 仅支持文生图')
   if (!input.connection.model.trim()) invalid('必须明确配置模型或接入点 ID')
   if (input.providerContinuation && !['openai-responses-image', 'google-gemini-image'].includes(input.adapter)) invalid('此接口不支持连续编辑信息；请显式引用本地图片')
   if (input.operation === 'image.generate' && input.assets.length) invalid('文生图操作不能携带输入图片，请使用参考或编辑操作')

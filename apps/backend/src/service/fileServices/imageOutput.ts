@@ -50,7 +50,7 @@ export function resolveImageOutput(input: {
   } else {
     // 这是实现边界，不是未知型号的多图能力证明。
     const interfaceMaximum = service.adapter === 'openai-images' ? 10 : service.adapter === 'minimax-images' ? 9
-      : service.adapter === 'doubao-seedream' ? 15 : service.adapter === 'google-imagen' ? 4 : undefined
+      : service.adapter === 'doubao-seedream' ? 15 : undefined
     if (interfaceMaximum === undefined) { capability = { nativeMultiImage: 'unknown', countControl: 'unknown' }; source = 'adapter' }
     else if (capability.maxImagesPerRequest !== undefined) capability = { ...capability, maxImagesPerRequest: Math.min(capability.maxImagesPerRequest, interfaceMaximum) }
     if (['requested', 'maximum'].includes(capability.countControl)) capability = { ...capability,
@@ -83,7 +83,6 @@ export function imageCountParams(service: FileServiceConfig, resolution: Resolve
     return result
   }
   if (service.adapter === 'openai-images' || service.adapter === 'minimax-images') result.n = count
-  else if (service.adapter === 'google-imagen') result.sampleCount = count
   else if (service.adapter === 'doubao-seedream' && resolution.capability.nativeMultiImage === 'supported') {
     result.sequential_image_generation = count === 1 ? 'disabled' : 'auto'
     if (count > 1) result.sequential_image_generation_options = { max_images: count }

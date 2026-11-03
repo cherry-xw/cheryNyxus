@@ -103,13 +103,12 @@ describe('modelCatalog 三态能力与输出能力解析', () => {
     expect(resolved.output.image).toEqual({ state: 'supported', source: 'user' })
   })
 
-  it('模型目录包含 OpenAI / Gemini / Imagen / Seedream / MiniMax 代表模型', () => {
+  it('模型目录包含 OpenAI / Gemini / Seedream / MiniMax 代表模型', () => {
     const catalog = loadModelCatalog()
     expect(catalog.models.length).toBeGreaterThan(0)
     for (const model of [
       'gpt-image-1.5',
       'gemini-2.5-flash-image',
-      'imagen-4.0-generate-001',
       'doubao-seedream-5-0-pro-260628',
       'image-01',
     ]) {
@@ -126,7 +125,6 @@ describe('protocol 契约：适配器表、AssetRecord、有序 parts 与 FileOp
       'openai-images',
       'openai-responses-image',
       'google-gemini-image',
-      'google-imagen',
       'doubao-seedream',
       'minimax-images',
       'vision-brain',

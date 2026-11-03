@@ -39,8 +39,7 @@ export async function executeFileServiceAdapter(
       controller.signal.addEventListener('abort', rejectAbort, { once: true })
     })
     const result = await Promise.race([providerExecutors[input.adapter as HttpFileServiceAdapterId](input, params, ctx), interrupted])
-    const requested = input.adapter === 'google-imagen' ? Number(params.sampleCount ?? 1)
-      : ['minimax-images', 'openai-images'].includes(input.adapter) ? Number(params.n ?? 1) : undefined
+    const requested = ['minimax-images', 'openai-images'].includes(input.adapter) ? Number(params.n ?? 1) : undefined
     const returned = result.parts.filter(part => part.type === 'file').length
     if (!ctx.incomplete && requested !== undefined && returned < requested) {
       ctx.incomplete = { code: 'file_service.output_incomplete', message: `请求 ${requested} 张图片，实际取得 ${returned} 张；${ctx.reportedFailedImageCount === undefined ? '服务未提供不足原因' : `服务报告失败 ${ctx.reportedFailedImageCount} 张`}。不会自动重新生成缺失图片`, retryable: false }

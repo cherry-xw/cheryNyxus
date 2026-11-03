@@ -113,7 +113,6 @@ Web 的“文件与上下文 → 图片适配”和 Manager 设置模块的“�
 - `openai-images`：OpenAI Images 兼容 API（`/v1/images/generations`、`/v1/images/edits`，代表型号 `gpt-image-1`、`gpt-image-1-mini`、`gpt-image-1.5`），支持 `image.generate`、`image.reference`、`image.edit`；参数含 `size`、`quality`、`background`、`output_format`、`output_compression`、`moderation`、`input_fidelity` 及可选 `mask`。
 - `openai-responses-image`：OpenAI Responses API 内置 `image_generation` 工具，解析 `image_generation_call` 输出项与多轮续接上下文。
 - `google-gemini-image`：Google Gemini 原生图像生成与编辑（`models/{model}:generateContent`，代表型号 `gemini-2.5-flash-image`、`gemini-3-pro-image`、`gemini-3.1-flash-image`、`gemini-3.1-flash-lite-image`），配置 `responseModalities` 与 `imageConfig`（`aspectRatio`、`imageSize`），按序解析返回的文本与 `inlineData` 图像 part。
-- `google-imagen`：Google Imagen 专用文生图接口（`models/{model}:predict`，代表型号 `imagen-4.0-generate-001`、`imagen-4.0-fast-generate-001`、`imagen-4.0-ultra-generate-001`），参数含 `sampleCount`、`aspectRatio`、`personGeneration`、`outputOptions`。
 - `doubao-seedream`：火山方舟豆包 Seedream 图像生成接口（`POST /api/v3/images/generations`，代表型号 `doubao-seedream-5-0-pro-260628`、`doubao-seedream-5-0-flash-260915`），支持文生图、单/多参考图与组图生成（`size`、`response_format`、`output_format`、`watermark`、`sequential_image_generation`）。
 - `custom-sense-mcp`：现有自定义工具或 MCP 工具的结构化映射（`SenseFileOperationMapping`），声明输入资产/问题字段、传输方式（`base64` / `data-url` / `local-path` / `asset-id`）与输出提取路径。
 

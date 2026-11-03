@@ -134,7 +134,7 @@ MiniMax M3.1 Flash Preview 的 Chat Completions 使用 `reasoning_effort`，Mess
 | Step 3.5/3.7/5 Preview | [3.5](https://platform.stepfun.com/docs/zh/guides/models/step-3.5-flash)、[3.7](https://platform.stepfun.com/docs/zh/guides/models/step-3.7-flash)、[5](https://platform.stepfun.com/docs/zh/guides/models/step-5-preview) | 3.5 是纯文本；2603 只有 low/high；3.7/5 是多模态且 low/medium/high，Messages 用 output_config.effort |
 | Xiaomi MiMo | [深度思考](https://platform.xiaomimimo.com/docs/en-US/quick-start/usage-guide/text-generation/deep-thinking)、[型号发布](https://platform.xiaomimimo.com/docs/updates/model) | 仅对官方明确的 2.5/2.6 型号加入开关；旧 V2 pro/flash/omni/tts 的媒体差异不能合并成全模态，当前泛规则为 unknown；厂商下线/重定向不授权更换保存型号；工具轮须保留 reasoning_content |
 | xAI Grok 4.7 | [推理](https://docs.x.ai/developers/model-capabilities/text/reasoning)、[型号](https://docs.x.ai/developers/models/grok-4.7) | low/medium/high/xhigh，不可关闭；Responses 为 reasoning.effort 并原样回传 reasoning items |
-| 图像模型与文件服务 | [GPT Image 参数](https://developers.openai.com/api/docs/guides/image-prompting)、[Gemini generateContent 图像](https://ai.google.dev/gemini-api/docs/generate-content/image-generation)、[Imagen](https://ai.google.dev/gemini-api/docs/imagen)、[MiniMax 图像](https://platform.minimax.io/docs/api-reference/image-generation-i2i)、[Seedream pro/flash](https://docs.volcengine.com/docs/ark/seedream-5-0-pro?lang=zh)、[Seedream API](https://docs.volcengine.com/docs/ark/image-generation-api?lang=zh) | 图像服务不是聊天思考协议；不得凭兼容协议推断所有 variant 的字段；下面列出已实现范围及限制 |
+| 图像模型与文件服务 | [GPT Image 参数](https://developers.openai.com/api/docs/guides/image-prompting)、[Gemini generateContent 图像](https://ai.google.dev/gemini-api/docs/generate-content/image-generation)、[MiniMax 图像](https://platform.minimax.io/docs/api-reference/image-generation-i2i)、[Seedream pro/flash](https://docs.volcengine.com/docs/ark/seedream-5-0-pro?lang=zh)、[Seedream API](https://docs.volcengine.com/docs/ark/image-generation-api?lang=zh) | 图像服务不是聊天思考协议；不得凭兼容协议推断所有 variant 的字段；下面列出已实现范围及限制 |
 | Ollama | [Chat](https://docs.ollama.com/api/chat)、[Thinking](https://docs.ollama.com/capabilities/thinking) | think 的合法值由具体模型 /api/show 声明；目录未确认不猜，已配置 ollama-chat wire 需实际传入请求 |
 | New API/custom/mock | 各实际连接的实现文档；mock 无上游 | 仅提供入口或离线测试，不是模型厂商，不从中转地址推断厂商能力 |
 
@@ -150,7 +150,7 @@ MiniMax M3.1 Flash Preview 的 Chat Completions 使用 `reasoning_effort`，Mess
 - Gemini 图片服务使用 `generateContent`，保存配置名 `imageConfig` 在发送时映射为 `generationConfig.responseFormat.image`；不是聊天 OpenAI 兼容接口。3.1 Flash Image 支持 `512`，Flash Lite Image 只支持 `1K`；具体图像型号才声明图片输入输出，不把 PDF 或 Chat Completions 支持写成已确认。Interactions API 页面不是 generateContent 请求 schema。
 - Seedream 5.0 pro 为 `doubao-seedream-5-0-pro-260628`，flash 为 `doubao-seedream-5-0-flash-260915`。基础生图支持 `1K/1.5K/2K` 或总像素 921600–4624220、宽高比 1/16–16 的尺寸；不是 4K。`optimize_prompt_options.mode=fast` 仅 pro，flash 仅 standard。PNG/JPEG 输出、b64_json/url 返回、水印、最多 10 张参考图分别校验；现代型号单图上限 30,000,000 字节。上游还接收更多图片格式，本地通用资产入口仅开放 PNG/JPEG/WebP/GIF，不扩大原资产格式契约。
 - Seedream 透明输出显式 `background=transparent`，本地需单张 PNG 参考图并禁止 JPEG 输出，真实透明通道由服务方校验。图层拆分虽然上游已支持，但本地缺图层位置/名称等结果契约，因此明确拒绝 `layer_decomposition`，不把普通多图结果冒充图层支持。组图、seed 与流式不套到 pro/flash；没有自动重试或收费降级。
-- MiniMax 人物参考不是通用编辑；Imagen 使用显式 Vertex 项目/地区完整 predict 地址与 Bearer 认证，不把已停用的 Gemini Imagen 入口当作可用。六类文件适配器只实现共享参数 schema 中列出的范围；并不承诺所有厂商参数均已实现。未实现的字段拒绝而不是悄悄丢弃。
+- MiniMax 人物参考不是通用编辑；五类 HTTP 图像文件适配器只实现共享参数 schema 中列出的范围；并不承诺所有厂商参数均已实现。未实现的字段拒绝而不是悄悄丢弃。
 
 ### 常见维护错误与防止方式
 

@@ -188,11 +188,11 @@ describe('validateLoadable 重启前预检', () => {
     raw.file_services = {
       bad: {
         name: '冲突连接',
-        adapter: 'google-imagen',
+        adapter: 'minimax-images',
         connection: {
           brainRef: 'brain-a',
-          baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-          keyRef: '$GEMINI_API_KEY',
+          baseUrl: 'https://api.minimax.cn',
+          keyRef: '$MINIMAX_API_KEY',
         },
         operations: ['image.edit'],
       },
@@ -202,7 +202,7 @@ describe('validateLoadable 重启前预检', () => {
     if (!result.ok) {
       const joined = result.errors.join('\n')
       expect(joined).toContain('brainRef 与独立 baseUrl/keyRef 互斥')
-      expect(joined).toContain('不被适配器 "google-imagen" 支持')
+      expect(joined).toContain('不被适配器 "minimax-images" 支持')
     }
   })
 

@@ -273,7 +273,6 @@ export const FileServiceAdapterId = {
   OPENAI_IMAGES: 'openai-images',
   OPENAI_RESPONSES_IMAGE: 'openai-responses-image',
   GOOGLE_GEMINI_IMAGE: 'google-gemini-image',
-  GOOGLE_IMAGEN: 'google-imagen',
   DOUBAO_SEEDREAM: 'doubao-seedream',
   CUSTOM_SENSE_MCP: 'custom-sense-mcp',
 } as const
@@ -349,17 +348,6 @@ export const FILE_SERVICE_ADAPTER_CATALOG: readonly FileServiceAdapterDefinition
       'gemini-3-pro-image',
       'gemini-3.1-flash-image',
       'gemini-3.1-flash-lite-image',
-    ],
-  },
-  {
-    id: FileServiceAdapterId.GOOGLE_IMAGEN,
-    label: 'Google Vertex AI Imagen（完整端点）',
-    vendor: 'google',
-    supportedOperations: [FileCapabilityOperation.IMAGE_GENERATE],
-    representativeModels: [
-      'imagen-4.0-generate-001',
-      'imagen-4.0-fast-generate-001',
-      'imagen-4.0-ultra-generate-001',
     ],
   },
   {

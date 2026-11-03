@@ -207,19 +207,6 @@ describe('文件服务 HTTP 适配器', () => {
     expect(fetcher).toHaveBeenCalledTimes(1)
   })
 
-  it('Imagen 使用 predict 的 instances/parameters 并解析所有 predictions', async () => {
-    const fetcher = mockFetch({ predictions: [{ bytesBase64Encoded: first, mimeType: 'image/png' }, { bytesBase64Encoded: second, mimeType: 'image/jpeg' }] })
-    const result = await executeFileServiceAdapter(input('google-imagen', {
-      connection: { baseUrl: 'https://provider.example', model: 'imagen-4.0-generate-001', authType: 'bearer', key: 'vertex-token',
-        endpoints: { 'image.generate': 'https://provider.example/v1/projects/project/locations/region/publishers/google/models/imagen-4.0-generate-001:predict' } },
-      params: { prompt: 'draw', sampleCount: 2, aspectRatio: '3:4' },
-    }), { fetch: fetcher })
-    expect(String(fetcher.mock.calls[0]![0])).toBe('https://provider.example/v1/projects/project/locations/region/publishers/google/models/imagen-4.0-generate-001:predict')
-    expect(fetcher.mock.calls[0]![1]?.headers).toMatchObject({ Authorization: 'Bearer vertex-token' })
-    expect(requestBody(fetcher)).toEqual({ instances: [{ prompt: 'draw' }], parameters: { sampleCount: 2, aspectRatio: '3:4' } })
-    expect(result.parts).toHaveLength(2)
-  })
-
   it('Seedream 多图输入、组图输出与用量全部保留', async () => {
     const fetcher = mockFetch({ data: [{ b64_json: first }, { b64_json: second }], usage: { generated_images: 2 } })
     const result = await executeFileServiceAdapter(input('doubao-seedream', {
@@ -253,7 +240,6 @@ describe('文件服务 HTTP 适配器', () => {
     ['openai-responses-image', { prompt: 'draw', partial_images: 2 }, 'manual-model'],
     ['google-gemini-image', { prompt: 'draw', responseModalities: ['TEXT'] }, 'manual-model'],
     ['google-gemini-image', { prompt: 'draw', imageConfig: { imageSize: '4K' } }, 'gemini-2.5-flash-image'],
-    ['google-imagen', { prompt: 'draw', sampleCount: 2 }, 'imagen-4.0-ultra-generate-001'],
     ['doubao-seedream', { prompt: 'draw', sequential_image_generation_options: { max_images: 2 } }, 'manual-model'],
     ['openai-images', { prompt: 'draw', arbitraryScript: 'no' }, 'manual-model'],
   ])('严格拒绝不合法参数 %s %j', (adapter, params, model) => {

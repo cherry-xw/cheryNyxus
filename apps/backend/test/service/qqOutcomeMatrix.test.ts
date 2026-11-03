@@ -8,9 +8,9 @@ import declarations from './fixtures/qqOutcomeDeclarationScope.json'
 
 const root=path.resolve(import.meta.dirname,'../../../..')
 describe('audited declaration applicability (not all repository strings)',()=>{
-  it('accounts for exactly 166 distinct audit entries',()=>{
-    expect(declarations).toHaveLength(166)
-    expect(new Set(declarations.map(row=>row.id)).size).toBe(166)
+  it('accounts for exactly 165 distinct audit entries',()=>{
+    expect(declarations).toHaveLength(165)
+    expect(new Set(declarations.map(row=>row.id)).size).toBe(165)
   })
   it.each(declarations)('$id $scope $file:$auditLine',row=>{
     expect(['direct','related-contract','outside-outcome-mapping']).toContain(row.scope)

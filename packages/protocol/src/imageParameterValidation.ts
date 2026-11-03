@@ -39,7 +39,6 @@ export function imageParameterErrors(adapter: string, params: Record<string, unk
     if (p.responseModalities && !(p.responseModalities as string[]).includes('IMAGE')) invalid('responseModalities: 图片操作必须请求 IMAGE 输出')
     if (model === 'gemini-2.5-flash-image' && imageSize) invalid('imageConfig.imageSize: gemini-2.5-flash-image 不支持 imageSize')
   }
-  if (adapter === 'google-imagen' && model === 'imagen-4.0-ultra-generate-001' && Number(p.sampleCount ?? 1) > 1) invalid('sampleCount: Imagen 4 Ultra 每次仅支持一张图片')
   if (adapter === 'doubao-seedream') {
     if (p.sequential_image_generation_options && p.sequential_image_generation !== 'auto') invalid('sequential_image_generation_options: 组图配置需要 auto 模式')
     const modern = /^doubao-seedream-5-0-(pro|flash)(?:-|$)/.test(model)
