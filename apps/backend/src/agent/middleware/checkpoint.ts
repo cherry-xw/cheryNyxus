@@ -17,6 +17,8 @@ import { fileAccessForChat } from '@/service/media/access.js'
 import type { MessageAssetPart } from '@chery/protocol'
 import { canContinueInstruction } from '@/core/middleware/inputAdoption.js'
 import { AgentParkError } from '@/core/middleware/errors.js'
+import { recordServerToolTaskVerification } from '@/db/serverToolObservations.js'
+import { LogLevel } from '@/utils/logger/index.js'
 
 /**
  * Checkpoint Middleware
@@ -74,6 +76,7 @@ export async function* checkpointMiddleware(
   }
 
   const state = new CheckpointState()
+  const serverToolScopeId = ctx.runtime?.serverToolScopeId
   // Announce the preallocated assistant turn before the provider produces its
   // first token. The service mapper turns this empty checkpoint into
   // turn.started but suppresses an empty legacy stream chunk.
@@ -314,6 +317,17 @@ export async function* checkpointMiddleware(
     }
     // 服务端工具（如 server_tool_use / web_search_call）也在 staged 中投递，保证流式期间实时可见
     const completedServerTools = state.buildServerToolCalls()
+    if (serverToolScopeId && completedServerTools.length > 0) {
+      try {
+        recordServerToolTaskVerification(serverToolScopeId, {
+          calls: completedServerTools,
+          finalContent: state.getContent(),
+          stopReason: state.getStopReason(),
+        })
+      } catch {
+        ctx.log.event('llm.server_tool_verification.unavailable', {}, LogLevel.warn)
+      }
+    }
     for (const stc of completedServerTools) {
       yield {
         type: 'staged',

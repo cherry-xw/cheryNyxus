@@ -423,6 +423,10 @@ export class CheckpointState {
     return this.content
   }
 
+  getStopReason(): string | undefined {
+    return this.stopReason
+  }
+
   /**
    * 获取累积思考
    */

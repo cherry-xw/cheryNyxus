@@ -113,7 +113,7 @@ pnpm --config.verify-deps-before-run=false exec vitest run --config apps/backend
 服务端工具和既有本地授权边界：
 
 ```sh
-pnpm --config.verify-deps-before-run=false exec vitest run --config apps/backend/vite.config.ts apps/backend/test/agent/middleware/serverTools.test.ts apps/backend/test/agent/middleware/checkpointState.test.ts apps/backend/test/agent/middleware/checkpoint.test.ts apps/backend/test/agent/middleware/chat.test.ts apps/backend/test/agent/middleware/tool.test.ts apps/backend/test/agent/middleware/qqRequest.test.ts apps/backend/test/core/messageJournal.test.ts apps/backend/test/scripts/cheryTemplateSync.test.ts --no-file-parallelism
+pnpm --config.verify-deps-before-run=false exec vitest run --config apps/backend/vite.config.ts apps/backend/test/agent/middleware/serverTools.test.ts apps/backend/test/agent/middleware/checkpointServerToolVerification.test.ts apps/backend/test/agent/middleware/checkpointState.test.ts apps/backend/test/agent/middleware/checkpoint.test.ts apps/backend/test/agent/middleware/chat.test.ts apps/backend/test/agent/middleware/tool.test.ts apps/backend/test/agent/middleware/qqRequest.test.ts apps/backend/test/core/messageJournal.test.ts apps/backend/test/scripts/cheryTemplateSync.test.ts --no-file-parallelism
 ```
 
 其中 `server-tools-observed.json` 是已保存 GLM/GPT 搜索事件的脱敏选定字段，带原响应哈希，不依赖临时目录、不发模型请求。边界用合成事件覆盖：嵌套/部分 JSON 凭据与 Base64、带签名 URL、结构化错误、孤立结果、参数分流、未知完成、重复快照、混合响应审批时机、持久化更新/清空与独立续接字段保留。完整有序事件与产品多轮不能由这些局部断言推导为通过。
